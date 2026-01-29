@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import {
@@ -112,6 +112,10 @@ export default function SelectLocationPage() {
 
   // Bottom sheet state
   const [isSheetExpanded, setIsSheetExpanded] = useState(true)
+  const [sheetHeight, setSheetHeight] = useState(75) // percentage of viewport
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartY = useRef<number | null>(null)
+  const dragStartHeight = useRef<number | null>(null)
 
   // Validate token on mount
   useEffect(() => {
@@ -351,6 +355,78 @@ export default function SelectLocationPage() {
     return today.toISOString().split('T')[0]
   }
 
+  // Handle sheet drag start
+  const handleSheetDragStart = useCallback((clientY: number) => {
+    setIsDragging(true)
+    dragStartY.current = clientY
+    dragStartHeight.current = sheetHeight
+  }, [sheetHeight])
+
+  // Handle sheet drag move
+  const handleSheetDragMove = useCallback((clientY: number) => {
+    if (!isDragging || dragStartY.current === null || dragStartHeight.current === null) return
+
+    const deltaY = dragStartY.current - clientY
+    const deltaPercent = (deltaY / window.innerHeight) * 100
+    const newHeight = Math.min(85, Math.max(20, dragStartHeight.current + deltaPercent))
+
+    setSheetHeight(newHeight)
+    setIsSheetExpanded(newHeight > 30)
+  }, [isDragging])
+
+  // Handle sheet drag end
+  const handleSheetDragEnd = useCallback(() => {
+    setIsDragging(false)
+    dragStartY.current = null
+    dragStartHeight.current = null
+
+    // Snap to expanded or collapsed
+    if (sheetHeight < 30) {
+      setSheetHeight(20)
+      setIsSheetExpanded(false)
+    } else if (sheetHeight > 60) {
+      setSheetHeight(75)
+      setIsSheetExpanded(true)
+    }
+  }, [sheetHeight])
+
+  // Touch event handlers for sheet
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    handleSheetDragStart(e.touches[0].clientY)
+  }, [handleSheetDragStart])
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    handleSheetDragMove(e.touches[0].clientY)
+  }, [handleSheetDragMove])
+
+  const onTouchEnd = useCallback(() => {
+    handleSheetDragEnd()
+  }, [handleSheetDragEnd])
+
+  // Mouse event handlers for sheet
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    handleSheetDragStart(e.clientY)
+  }, [handleSheetDragStart])
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      handleSheetDragMove(e.clientY)
+    }
+    const onMouseUp = () => {
+      handleSheetDragEnd()
+    }
+
+    if (isDragging) {
+      window.addEventListener('mousemove', onMouseMove)
+      window.addEventListener('mouseup', onMouseUp)
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [isDragging, handleSheetDragMove, handleSheetDragEnd])
+
   // Submit selection
   const handleSubmit = async () => {
     if (!pickup || !dropoff || !pricing) return
@@ -460,18 +536,28 @@ export default function SelectLocationPage() {
       </div>
 
       {/* Bottom sheet */}
-      <div className={`bottom-sheet ${isSheetExpanded ? 'bottom-sheet-expanded' : 'bottom-sheet-collapsed'}`}>
-        {/* Clickable handle to toggle */}
-        <button
-          onClick={() => setIsSheetExpanded(!isSheetExpanded)}
-          className="w-full py-3 flex flex-col items-center"
-          aria-label={isSheetExpanded ? 'Minimize panel' : 'Expand panel'}
+      <div
+        className="bottom-sheet"
+        style={{
+          maxHeight: `${sheetHeight}vh`,
+          transition: isDragging ? 'none' : 'max-height 0.3s ease-out'
+        }}
+      >
+        {/* Draggable handle */}
+        <div
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          onMouseDown={onMouseDown}
+          onClick={() => !isDragging && setIsSheetExpanded(!isSheetExpanded)}
+          className="w-full py-3 flex flex-col items-center cursor-grab active:cursor-grabbing select-none"
+          aria-label={isSheetExpanded ? 'Drag or tap to minimize' : 'Drag or tap to expand'}
         >
           <div className="bottom-sheet-handle" />
           <span className="text-xs text-charcoal-400 mt-1">
-            {isSheetExpanded ? 'Tap to minimize' : 'Tap to expand'}
+            Drag to resize
           </span>
-        </button>
+        </div>
 
         {/* Collapsed view - just show summary */}
         {!isSheetExpanded && (
