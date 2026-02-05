@@ -99,9 +99,9 @@ export async function POST(request: NextRequest) {
     const sanitizedInstructions = sanitizeString(specialInstructions, 500)
 
     // Validate vehicle and ride types
-    const validVehicleTypes = ['black_sedan', 'black_suv', 'chauffeur']
+    const validVehicleTypes = ['black_suv', 'luxury_black_suv', 'chauffeur']
     const validRideTypes = ['one_way', 'round_trip', 'hourly']
-    const safeVehicleType = validVehicleTypes.includes(vehicleType) ? vehicleType : 'black_sedan'
+    const safeVehicleType = validVehicleTypes.includes(vehicleType) ? vehicleType : 'black_suv'
     const safeRideType = validRideTypes.includes(rideType) ? rideType : 'one_way'
 
     // Validate pricing (basic sanity check)
@@ -151,13 +151,13 @@ export async function POST(request: NextRequest) {
         dropoff_lat: sanitizedDropoff.lat,
         dropoff_lng: sanitizedDropoff.lng,
         dropoff_zone: dropoffZone,
-        distance_meters: route?.distanceMeters,
+        distance_meters: route?.distanceMeters ? Math.round(route.distanceMeters) : null,
         distance_text: route?.distanceText,
-        duration_seconds: route?.durationSeconds,
+        duration_seconds: route?.durationSeconds ? Math.round(route.durationSeconds) : null,
         duration_text: route?.durationText,
         route_polyline: route?.polyline,
         stops: sanitizedStops.length > 0 ? sanitizedStops : null,
-        estimated_price: pricing.total,
+        estimated_price: Math.round(pricing.total),
         price_breakdown: pricing.breakdown,
         vehicle_type: safeVehicleType,
         ride_type: safeRideType,
@@ -211,7 +211,10 @@ export async function POST(request: NextRequest) {
         } : null,
         pricing: {
           total: pricing.total,
-          breakdown: pricing.breakdown
+          breakdown: {
+            base: pricing.breakdown.base,
+            zoneSurcharge: pricing.breakdown.zoneSurcharge
+          }
         },
         vehicle_type: safeVehicleType,
         ride_type: safeRideType,

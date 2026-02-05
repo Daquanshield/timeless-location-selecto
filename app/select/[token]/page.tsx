@@ -73,13 +73,19 @@ export default function SelectLocationPage() {
   const [isCalculating, setIsCalculating] = useState(false)
 
   // Options state
-  const [vehicleType, setVehicleType] = useState<VehicleType>('black_sedan')
+  const [vehicleType, setVehicleType] = useState<VehicleType>('black_suv')
   const [rideType, setRideType] = useState<RideType>('one_way')
 
   // Scheduling state
   const [scheduledDate, setScheduledDate] = useState<string>('')
   const [scheduledTime, setScheduledTime] = useState<string>('')
+  const [selectedSlot, setSelectedSlot] = useState<{ time: string; startTime: string; endTime: string } | null>(null)
+  const [availableSlots, setAvailableSlots] = useState<{ time: string; startTime: string; endTime: string }[]>([])
+  const [isLoadingSlots, setIsLoadingSlots] = useState(false)
   const [specialInstructions, setSpecialInstructions] = useState<string>('')
+
+  // User location for biasing search results
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
 
   // Drag and drop sensors
   const sensors = useSensors(
@@ -112,7 +118,7 @@ export default function SelectLocationPage() {
 
   // Bottom sheet state
   const [isSheetExpanded, setIsSheetExpanded] = useState(true)
-  const [sheetHeight, setSheetHeight] = useState(75) // percentage of viewport
+  const [sheetHeight, setSheetHeight] = useState(60) // percentage of viewport - reduced for better UX
   const [isDragging, setIsDragging] = useState(false)
   const dragStartY = useRef<number | null>(null)
   const dragStartHeight = useRef<number | null>(null)
@@ -142,44 +148,103 @@ export default function SelectLocationPage() {
     validateToken()
   }, [token])
 
-  // Prefill pickup/dropoff from session data (from Sofia conversation)
+  // Request user location on mount (for biasing search results)
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          })
+        },
+        (error) => {
+          console.log('Location permission denied or unavailable:', error.message)
+          // Silent fail - will use Detroit area as default
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: 5000,
+          maximumAge: 300000 // Cache for 5 minutes
+        }
+      )
+    }
+  }, [])
+
+  // Prefill locations from session if AI recognized them
   useEffect(() => {
     if (!session) return
 
-    const { prefillPickup, prefillDropoff } = session
+    const prefillLocation = async (address: string): Promise<Location | null> => {
+      if (!address || address.trim() === '') return null
+      try {
+        const result = await geocodeAddress(address)
+        if (result) {
+          return { address: result.address, lat: result.lat, lng: result.lng }
+        }
+      } catch (error) {
+        console.error('Geocoding error:', error)
+      }
+      return null
+    }
 
-    async function prefillLocations() {
-      // Geocode prefill pickup address
-      if (prefillPickup) {
-        try {
-          const location = await geocodeAddress(prefillPickup)
-          if (location) {
-            setPickup(location)
-            // Auto-advance to dropoff if no prefill dropoff
-            if (!prefillDropoff) {
-              setSelectionMode('dropoff')
-            }
-          }
-        } catch (error) {
-          console.error('Failed to geocode prefill pickup:', error)
+    const doPrefill = async () => {
+      // Prefill pickup if provided
+      if (session.prefillPickup && !pickup) {
+        const loc = await prefillLocation(session.prefillPickup)
+        if (loc) {
+          setPickup(loc)
+          setSelectionMode('dropoff')
         }
       }
 
-      // Geocode prefill dropoff address
-      if (prefillDropoff) {
-        try {
-          const location = await geocodeAddress(prefillDropoff)
-          if (location) {
-            setDropoff(location)
-          }
-        } catch (error) {
-          console.error('Failed to geocode prefill dropoff:', error)
+      // Prefill dropoff if provided
+      if (session.prefillDropoff && !dropoff) {
+        const loc = await prefillLocation(session.prefillDropoff)
+        if (loc) {
+          setDropoff(loc)
         }
       }
     }
 
-    prefillLocations()
-  }, [session]) // Only run when session changes
+    doPrefill()
+  }, [session])
+
+  // Fetch available slots when date changes
+  useEffect(() => {
+    if (!scheduledDate) {
+      setAvailableSlots([])
+      setSelectedSlot(null)
+      return
+    }
+
+    async function fetchSlots() {
+      setIsLoadingSlots(true)
+      setSelectedSlot(null)
+      try {
+        // Build URL with optional pickup coordinates for dynamic travel buffer
+        let url = `/api/get-available-slots?date=${scheduledDate}`
+        if (pickup?.lat && pickup?.lng) {
+          url += `&pickupLat=${pickup.lat}&pickupLng=${pickup.lng}`
+        }
+
+        const response = await fetch(url)
+        const data = await response.json()
+        if (data.slots) {
+          setAvailableSlots(data.slots)
+        } else {
+          setAvailableSlots([])
+        }
+      } catch (error) {
+        console.error('Error fetching slots:', error)
+        setAvailableSlots([])
+      } finally {
+        setIsLoadingSlots(false)
+      }
+    }
+
+    fetchSlots()
+  }, [scheduledDate, pickup?.lat, pickup?.lng])
 
   // Calculate route when both locations are set or options change
   useEffect(() => {
@@ -368,7 +433,7 @@ export default function SelectLocationPage() {
 
     const deltaY = dragStartY.current - clientY
     const deltaPercent = (deltaY / window.innerHeight) * 100
-    const newHeight = Math.min(85, Math.max(20, dragStartHeight.current + deltaPercent))
+    const newHeight = Math.min(90, Math.max(20, dragStartHeight.current + deltaPercent))
 
     setSheetHeight(newHeight)
     setIsSheetExpanded(newHeight > 30)
@@ -384,18 +449,26 @@ export default function SelectLocationPage() {
     if (sheetHeight < 30) {
       setSheetHeight(20)
       setIsSheetExpanded(false)
-    } else if (sheetHeight > 60) {
-      setSheetHeight(75)
+    } else if (sheetHeight < 50) {
+      setSheetHeight(60) // Medium height - good for viewing form
+      setIsSheetExpanded(true)
+    } else if (sheetHeight > 75) {
+      setSheetHeight(85) // Max height for full view
+      setIsSheetExpanded(true)
+    } else {
+      setSheetHeight(60) // Default to medium
       setIsSheetExpanded(true)
     }
   }, [sheetHeight])
 
   // Touch event handlers for sheet
   const onTouchStart = useCallback((e: React.TouchEvent) => {
+    e.preventDefault() // Prevent pull-to-refresh
     handleSheetDragStart(e.touches[0].clientY)
   }, [handleSheetDragStart])
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
+    e.preventDefault() // Prevent pull-to-refresh
     handleSheetDragMove(e.touches[0].clientY)
   }, [handleSheetDragMove])
 
@@ -435,9 +508,11 @@ export default function SelectLocationPage() {
     setSubmitError(null)
 
     try {
-      // Combine date and time if both are set
+      // Use the selected slot's datetime if available
       let scheduledDateTime: string | undefined
-      if (scheduledDate && scheduledTime) {
+      if (selectedSlot) {
+        scheduledDateTime = selectedSlot.startTime
+      } else if (scheduledDate && scheduledTime) {
         scheduledDateTime = `${scheduledDate}T${scheduledTime}:00`
       } else if (scheduledDate) {
         scheduledDateTime = `${scheduledDate}T09:00:00` // Default to 9 AM
@@ -451,7 +526,13 @@ export default function SelectLocationPage() {
           pickup,
           dropoff,
           stops: stops.filter(s => s.address && s.lat && s.lng),
-          route,
+          route: route ? {
+            distanceMeters: route.distanceMeters,
+            distanceText: route.distanceText,
+            durationSeconds: route.durationSeconds,
+            durationText: route.durationText
+            // Exclude polyline to reduce payload size for long trips
+          } : null,
           pricing,
           vehicleType,
           rideType,
@@ -540,7 +621,9 @@ export default function SelectLocationPage() {
         className="bottom-sheet"
         style={{
           maxHeight: `${sheetHeight}vh`,
-          transition: isDragging ? 'none' : 'max-height 0.3s ease-out'
+          transition: isDragging ? 'none' : 'max-height 0.3s ease-out',
+          display: 'flex',
+          flexDirection: 'column'
         }}
       >
         {/* Draggable handle */}
@@ -550,7 +633,8 @@ export default function SelectLocationPage() {
           onTouchEnd={onTouchEnd}
           onMouseDown={onMouseDown}
           onClick={() => !isDragging && setIsSheetExpanded(!isSheetExpanded)}
-          className="w-full py-3 flex flex-col items-center cursor-grab active:cursor-grabbing select-none"
+          className="drag-handle w-full py-4 flex flex-col items-center cursor-grab active:cursor-grabbing select-none"
+          style={{ flexShrink: 0 }}
           aria-label={isSheetExpanded ? 'Drag or tap to minimize' : 'Drag or tap to expand'}
         >
           <div className="bottom-sheet-handle" />
@@ -561,7 +645,7 @@ export default function SelectLocationPage() {
 
         {/* Collapsed view - just show summary */}
         {!isSheetExpanded && (
-          <div className="px-4 pb-4">
+          <div className="px-4 pb-4" style={{ flexShrink: 0 }}>
             <div className="flex items-center justify-between gap-4">
               <div className="flex-1 min-w-0 space-y-1">
                 <div className="flex items-center gap-2">
@@ -596,7 +680,16 @@ export default function SelectLocationPage() {
 
         {/* Expanded view - full form */}
         {isSheetExpanded && (
-          <div className="px-4 pb-6 space-y-4">
+          <div
+            className="px-4 pb-6 space-y-4 bottom-sheet-content"
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              WebkitOverflowScrolling: 'touch', // Smooth scrolling on iOS
+              touchAction: 'pan-y' // Allow vertical scrolling
+            }}
+          >
             {/* Header */}
             <div className="text-center pb-2">
               <h1 className="text-xl font-display text-gold-400">
@@ -617,6 +710,7 @@ export default function SelectLocationPage() {
                 isActive={selectionMode === 'pickup'}
                 onFocus={() => setSelectionMode('pickup')}
                 icon="pickup"
+                userLocation={userLocation}
               />
 
               {/* Stops with drag-and-drop */}
@@ -669,6 +763,7 @@ export default function SelectLocationPage() {
                 isActive={selectionMode === 'dropoff'}
                 onFocus={() => setSelectionMode('dropoff')}
                 icon="dropoff"
+                userLocation={userLocation}
               />
             </div>
 
@@ -677,32 +772,81 @@ export default function SelectLocationPage() {
               <label className="block text-sm font-medium text-cream-100">
                 When do you need the ride?
               </label>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-charcoal-400 mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={scheduledDate}
-                    onChange={(e) => setScheduledDate(e.target.value)}
-                    min={getMinDate()}
-                    className="w-full px-3 py-3 bg-charcoal-800 border-2 border-charcoal-700 rounded-lg text-cream-100 focus:border-gold-400 focus:outline-none transition-colors"
-                    style={{ colorScheme: 'dark' }}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-charcoal-400 mb-1">Time</label>
-                  <input
-                    type="time"
-                    value={scheduledTime}
-                    onChange={(e) => setScheduledTime(e.target.value)}
-                    className="w-full px-3 py-3 bg-charcoal-800 border-2 border-charcoal-700 rounded-lg text-cream-100 focus:border-gold-400 focus:outline-none transition-colors"
-                    style={{ colorScheme: 'dark' }}
-                  />
-                </div>
+
+              {/* Date picker */}
+              <div>
+                <label className="block text-xs text-charcoal-400 mb-1">Select Date</label>
+                <input
+                  type="date"
+                  value={scheduledDate}
+                  onChange={(e) => {
+                    setScheduledDate(e.target.value)
+                    setScheduledTime('')
+                    setSelectedSlot(null)
+                  }}
+                  min={getMinDate()}
+                  className="w-full px-3 py-3 bg-charcoal-800 border-2 border-charcoal-700 rounded-lg text-cream-100 focus:border-gold-400 focus:outline-none transition-colors"
+                  style={{ colorScheme: 'dark' }}
+                />
               </div>
-              <p className="text-xs text-charcoal-500">
-                Leave blank for ASAP pickup
-              </p>
+
+              {/* Available time slots */}
+              {scheduledDate && (
+                <div>
+                  <label className="block text-xs text-charcoal-400 mb-2">
+                    {isLoadingSlots ? 'Loading available times...' : 'Select Time'}
+                  </label>
+
+                  {isLoadingSlots ? (
+                    <div className="flex items-center justify-center py-4">
+                      <div className="spinner" />
+                    </div>
+                  ) : availableSlots.length > 0 ? (
+                    <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
+                      {availableSlots.map((slot, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          onClick={() => {
+                            setSelectedSlot(slot)
+                            // Extract time from startTime for the scheduledTime state
+                            const time = new Date(slot.startTime).toLocaleTimeString('en-US', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: false,
+                              timeZone: 'America/Detroit'
+                            })
+                            setScheduledTime(time)
+                          }}
+                          className={`px-2 py-2 text-sm rounded-lg border-2 transition-colors ${
+                            selectedSlot?.startTime === slot.startTime
+                              ? 'bg-gold-400 border-gold-400 text-charcoal-900 font-medium'
+                              : 'bg-charcoal-800 border-charcoal-700 text-cream-100 hover:border-gold-400'
+                          }`}
+                        >
+                          {slot.time}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-charcoal-500 py-2">
+                      No available slots for this date. Please select another date.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {!scheduledDate && (
+                <p className="text-xs text-charcoal-500">
+                  Leave blank for ASAP pickup
+                </p>
+              )}
+
+              {selectedSlot && (
+                <p className="text-xs text-gold-400">
+                  ✓ Selected: {scheduledDate} at {selectedSlot.time}
+                </p>
+              )}
             </div>
 
             {/* Special Instructions */}

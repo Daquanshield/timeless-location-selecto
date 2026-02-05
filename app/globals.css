@@ -26,11 +26,13 @@ body {
   max-width: 100vw;
   overflow-x: hidden;
   font-family: 'Lato', system-ui, sans-serif;
+  overscroll-behavior: contain; /* Prevent pull-to-refresh */
 }
 
 body {
   color: var(--cream);
   background: var(--charcoal);
+  overscroll-behavior-y: contain; /* Prevent pull-to-refresh on mobile */
 }
 
 /* Mobile-first full height */
@@ -76,7 +78,7 @@ html, body, #__next {
   border-top: 2px solid var(--gold);
   box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
   z-index: 1000;
-  overflow-y: auto;
+  overflow: hidden;
   transition: max-height 0.3s ease-out;
 }
 
@@ -94,6 +96,38 @@ html, body, #__next {
   background: var(--gold);
   border-radius: 2px;
   opacity: 0.6;
+}
+
+/* Drag handle area - prevent pull-to-refresh */
+.drag-handle {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Smooth scrolling for content */
+.bottom-sheet-content {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Custom scrollbar for bottom sheet */
+.bottom-sheet *::-webkit-scrollbar {
+  width: 6px;
+}
+
+.bottom-sheet *::-webkit-scrollbar-track {
+  background: rgba(212, 175, 55, 0.1);
+  border-radius: 3px;
+}
+
+.bottom-sheet *::-webkit-scrollbar-thumb {
+  background: var(--gold);
+  border-radius: 3px;
+}
+
+.bottom-sheet *::-webkit-scrollbar-thumb:hover {
+  background: var(--gold-light);
 }
 
 /* Safe area padding for iOS */
