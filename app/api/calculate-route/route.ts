@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
 import { getRoute } from '@/lib/mapbox'
-import { detectZone } from '@/lib/zones'
+import { detectSofiaZone } from '@/lib/zones'
 import { calculatePrice } from '@/lib/pricing'
+import { detectServiceType } from '@/lib/service-detection'
 import {
   rateLimit,
   isValidToken,
@@ -11,7 +12,7 @@ import {
   validateContentType,
   isRequestTooLarge
 } from '@/lib/security'
-import type { CalculateRouteRequest, CalculateRouteResponse } from '@/types'
+import type { CalculateRouteRequest, CalculateRouteResponse, VehicleClass, ServiceType } from '@/types'
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,7 +40,20 @@ export async function POST(request: NextRequest) {
     }
 
     const body: CalculateRouteRequest = await request.json()
-    const { token, pickup, dropoff, stops = [], vehicleType = 'black_sedan', rideType = 'one_way' } = body
+    const {
+      token, pickup, dropoff, stops = [],
+      // SOFIA v4 fields
+      vehicleClass: rawVehicleClass,
+      serviceType: rawServiceType,
+      estimatedHours,
+      dayRateDuration,
+      waitTimeTier,
+      longDistanceDestination,
+      tripDirection,
+      // Deprecated fields (backward compat)
+      vehicleType,
+      rideType
+    } = body
 
     // Validate token format
     if (!isValidToken(token)) {
@@ -102,10 +116,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Sanitize and validate stops
+    // Sanitize and validate stops (max 2 per SOFIA v4)
     const validStops = stops
       .filter(s => s.lat && s.lng && s.address)
-      .slice(0, 3) // Max 3 stops
+      .slice(0, 2)
       .map(s => ({
         ...s,
         address: sanitizeAddress(s.address),
@@ -114,11 +128,14 @@ export async function POST(request: NextRequest) {
       }))
       .filter(s => s.lat !== 0 && s.lng !== 0)
 
-    // Validate vehicle and ride types
-    const validVehicleTypes = ['black_sedan', 'black_suv', 'chauffeur']
-    const validRideTypes = ['one_way', 'round_trip', 'hourly']
-    const safeVehicleType = validVehicleTypes.includes(vehicleType) ? vehicleType : 'black_sedan'
-    const safeRideType = validRideTypes.includes(rideType) ? rideType : 'one_way'
+    // Resolve vehicle class (support old vehicleType field)
+    const validVehicleClasses: VehicleClass[] = ['EXECUTIVE_SUV', 'PREMIER_SUV']
+    let safeVehicleClass: VehicleClass = 'EXECUTIVE_SUV'
+    if (rawVehicleClass && validVehicleClasses.includes(rawVehicleClass)) {
+      safeVehicleClass = rawVehicleClass
+    } else if (vehicleType === 'luxury_black_suv') {
+      safeVehicleClass = 'PREMIER_SUV'
+    }
 
     // Get route from Mapbox
     const route = await getRoute(sanitizedPickup, sanitizedDropoff, validStops)
@@ -130,22 +147,30 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Detect zones
-    const pickupZone = detectZone(sanitizedPickup.address, sanitizedPickup.lat, sanitizedPickup.lng)
-    const dropoffZone = detectZone(sanitizedDropoff.address, sanitizedDropoff.lat, sanitizedDropoff.lng)
+    // Detect SOFIA v4 zones
+    const pickupZone = detectSofiaZone(sanitizedPickup.address, sanitizedPickup.lat, sanitizedPickup.lng)
+    const dropoffZone = detectSofiaZone(sanitizedDropoff.address, sanitizedDropoff.lat, sanitizedDropoff.lng)
 
-    // Calculate pricing
-    const durationMinutes = Math.round(route.durationSeconds / 60)
-    const distanceKm = route.distanceMeters / 1000
-
-    const pricing = calculatePrice({
+    // Auto-detect or validate service type
+    const detectedServiceType = detectServiceType({
       pickupZone,
       dropoffZone,
-      durationMinutes,
-      distanceKm,
-      vehicleType: safeVehicleType,
-      rideType: safeRideType,
+      explicitServiceType: rawServiceType,
       numStops: validStops.length
+    })
+
+    // Calculate pricing with SOFIA v4 engine
+    const pricing = calculatePrice({
+      serviceType: detectedServiceType,
+      vehicleClass: safeVehicleClass,
+      pickupZone,
+      dropoffZone,
+      numStops: validStops.length,
+      estimatedHours,
+      dayRateDuration,
+      waitTimeTier,
+      longDistanceDestination,
+      tripDirection
     })
 
     const response: CalculateRouteResponse = {
@@ -154,7 +179,8 @@ export async function POST(request: NextRequest) {
         pickup: pickupZone,
         dropoff: dropoffZone
       },
-      pricing
+      pricing,
+      detectedServiceType
     }
 
     return NextResponse.json(response)

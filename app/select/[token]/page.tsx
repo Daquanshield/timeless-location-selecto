@@ -22,13 +22,20 @@ import AddressSearch from '@/components/AddressSearch'
 import SortableStop from '@/components/SortableStop'
 import PriceEstimate from '@/components/PriceEstimate'
 import { geocodeAddress } from '@/lib/mapbox'
+import { getVehicleCapacity } from '@/lib/pricing'
+import { detectServiceType } from '@/lib/service-detection'
 import type {
   Location,
   LocationSession,
   RouteInfo,
   PricingResult,
-  VehicleType,
-  RideType,
+  VehicleClass,
+  ServiceType,
+  DayRateDuration,
+  WaitTimeTier,
+  LongDistanceDestination,
+  TripDirection,
+  SofiaZone,
   Stop
 } from '@/types'
 
@@ -64,17 +71,26 @@ export default function SelectLocationPage() {
   // Helper to check if selecting pickup
   const selectingPickup = selectionMode === 'pickup'
 
-  // Max 3 stops allowed
-  const MAX_STOPS = 3
+  // Max 2 stops for MULTI_STOP (per SOFIA v4 spec)
+  const MAX_STOPS = 2
 
   // Route & pricing state
   const [route, setRoute] = useState<RouteInfo | null>(null)
   const [pricing, setPricing] = useState<PricingResult | null>(null)
   const [isCalculating, setIsCalculating] = useState(false)
+  const [detectedZones, setDetectedZones] = useState<{ pickup: SofiaZone; dropoff: SofiaZone } | null>(null)
 
-  // Options state
-  const [vehicleType, setVehicleType] = useState<VehicleType>('black_suv')
-  const [rideType, setRideType] = useState<RideType>('one_way')
+  // SOFIA v4 Options state
+  const [vehicleClass, setVehicleClass] = useState<VehicleClass>('EXECUTIVE_SUV')
+  const [serviceType, setServiceType] = useState<ServiceType>('AIRPORT')
+  const [estimatedHours, setEstimatedHours] = useState<number>(3)
+  const [dayRateDuration, setDayRateDuration] = useState<DayRateDuration>('8hr')
+  const [waitTimeTier, setWaitTimeTier] = useState<WaitTimeTier>('NONE')
+  const [longDistanceDestination, setLongDistanceDestination] = useState<LongDistanceDestination | null>(null)
+  const [tripDirection, setTripDirection] = useState<TripDirection>('one_way')
+
+  // Auto-adjust passenger count max when vehicle class changes
+  const maxPassengers = getVehicleCapacity(vehicleClass)
 
   // Scheduling state
   const [scheduledDate, setScheduledDate] = useState<string>('')
@@ -82,6 +98,7 @@ export default function SelectLocationPage() {
   const [selectedSlot, setSelectedSlot] = useState<{ time: string; startTime: string; endTime: string } | null>(null)
   const [availableSlots, setAvailableSlots] = useState<{ time: string; startTime: string; endTime: string }[]>([])
   const [isLoadingSlots, setIsLoadingSlots] = useState(false)
+  const [passengerCount, setPassengerCount] = useState<number>(1)
   const [specialInstructions, setSpecialInstructions] = useState<string>('')
 
   // User location for biasing search results
@@ -251,12 +268,14 @@ export default function SelectLocationPage() {
     if (!pickup || !dropoff) {
       setRoute(null)
       setPricing(null)
+      setDetectedZones(null)
       return
     }
 
     async function calculateRoute() {
       setIsCalculating(true)
       try {
+        const validStops = stops.filter(s => s.address && s.lat && s.lng)
         const response = await fetch('/api/calculate-route', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -264,9 +283,14 @@ export default function SelectLocationPage() {
             token,
             pickup,
             dropoff,
-            stops: stops.filter(s => s.address && s.lat && s.lng),
-            vehicleType,
-            rideType
+            stops: validStops,
+            vehicleClass,
+            serviceType,
+            estimatedHours,
+            dayRateDuration,
+            waitTimeTier,
+            longDistanceDestination,
+            tripDirection
           })
         })
 
@@ -275,6 +299,20 @@ export default function SelectLocationPage() {
         if (response.ok) {
           setRoute(data.route)
           setPricing(data.pricing)
+          // Store detected zones for service type auto-detection
+          if (data.zones) {
+            setDetectedZones(data.zones)
+            // Auto-detect service type from zones (unless user explicitly set it)
+            const detected = detectServiceType({
+              pickupZone: data.zones.pickup,
+              dropoffZone: data.zones.dropoff,
+              explicitServiceType: serviceType,
+              numStops: validStops.length
+            })
+            if (data.detectedServiceType) {
+              setServiceType(data.detectedServiceType)
+            }
+          }
         } else {
           console.error('Route calculation failed:', data.error)
         }
@@ -286,7 +324,7 @@ export default function SelectLocationPage() {
     }
 
     calculateRoute()
-  }, [pickup, dropoff, stops, vehicleType, rideType, token])
+  }, [pickup, dropoff, stops, vehicleClass, serviceType, estimatedHours, dayRateDuration, waitTimeTier, longDistanceDestination, tripDirection, token])
 
   // Handle map click
   const handleMapClick = useCallback((lat: number, lng: number, address: string) => {
@@ -531,13 +569,18 @@ export default function SelectLocationPage() {
             distanceText: route.distanceText,
             durationSeconds: route.durationSeconds,
             durationText: route.durationText
-            // Exclude polyline to reduce payload size for long trips
           } : null,
           pricing,
-          vehicleType,
-          rideType,
+          vehicleClass,
+          serviceType,
+          passengerCount: Math.min(passengerCount, maxPassengers),
           scheduledDate: scheduledDateTime,
-          specialInstructions: specialInstructions.trim() || undefined
+          specialInstructions: specialInstructions.trim() || undefined,
+          estimatedHours: serviceType === 'HOURLY' ? estimatedHours : undefined,
+          dayRateDuration: serviceType === 'DAY_RATE' ? dayRateDuration : undefined,
+          waitTimeTier: serviceType === 'LONG_DISTANCE' ? waitTimeTier : undefined,
+          longDistanceDestination: serviceType === 'LONG_DISTANCE' ? longDistanceDestination : undefined,
+          tripDirection: serviceType === 'LONG_DISTANCE' ? tripDirection : undefined
         })
       })
 
@@ -770,7 +813,7 @@ export default function SelectLocationPage() {
             {/* Date/Time Picker */}
             <div className="space-y-3">
               <label className="block text-sm font-medium text-cream-100">
-                When do you need the ride?
+                When do you need the ride? <span className="text-gold-400">*</span>
               </label>
 
               {/* Date picker */}
@@ -837,8 +880,8 @@ export default function SelectLocationPage() {
               )}
 
               {!scheduledDate && (
-                <p className="text-xs text-charcoal-500">
-                  Leave blank for ASAP pickup
+                <p className="text-xs text-gold-400">
+                  * Required - Please select a date
                 </p>
               )}
 
@@ -847,6 +890,40 @@ export default function SelectLocationPage() {
                   ✓ Selected: {scheduledDate} at {selectedSlot.time}
                 </p>
               )}
+            </div>
+
+            {/* Passenger Count */}
+            <div>
+              <label className="block text-sm font-medium text-cream-100 mb-2">
+                Number of Passengers
+              </label>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPassengerCount(Math.max(1, passengerCount - 1))}
+                  disabled={passengerCount <= 1}
+                  className="w-12 h-12 rounded-lg border-2 border-charcoal-700 bg-charcoal-800 text-cream-100 text-xl font-bold flex items-center justify-center hover:border-gold-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  −
+                </button>
+                <div className="flex-1 text-center">
+                  <span className="text-2xl font-display text-gold-400">{passengerCount}</span>
+                  <p className="text-xs text-charcoal-400 mt-1">
+                    {passengerCount === 1 ? 'passenger' : 'passengers'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPassengerCount(Math.min(maxPassengers, passengerCount + 1))}
+                  disabled={passengerCount >= maxPassengers}
+                  className="w-12 h-12 rounded-lg border-2 border-charcoal-700 bg-charcoal-800 text-cream-100 text-xl font-bold flex items-center justify-center hover:border-gold-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  +
+                </button>
+              </div>
+              <p className="text-xs text-charcoal-500 mt-2 text-center">
+                {vehicleClass === 'EXECUTIVE_SUV' ? 'Executive SUV — max 4 passengers' : 'Premier SUV — max 6 passengers'}
+              </p>
             </div>
 
             {/* Special Instructions */}
@@ -871,10 +948,25 @@ export default function SelectLocationPage() {
             <PriceEstimate
               pricing={pricing}
               route={route}
-              vehicleType={vehicleType}
-              rideType={rideType}
-              onVehicleTypeChange={setVehicleType}
-              onRideTypeChange={setRideType}
+              vehicleClass={vehicleClass}
+              serviceType={serviceType}
+              estimatedHours={estimatedHours}
+              dayRateDuration={dayRateDuration}
+              waitTimeTier={waitTimeTier}
+              longDistanceDestination={longDistanceDestination}
+              tripDirection={tripDirection}
+              onVehicleClassChange={(vc) => {
+                setVehicleClass(vc)
+                // Clamp passenger count to new vehicle max
+                const newMax = getVehicleCapacity(vc)
+                if (passengerCount > newMax) setPassengerCount(newMax)
+              }}
+              onServiceTypeChange={setServiceType}
+              onEstimatedHoursChange={setEstimatedHours}
+              onDayRateDurationChange={setDayRateDuration}
+              onWaitTimeTierChange={setWaitTimeTier}
+              onLongDistanceDestinationChange={setLongDistanceDestination}
+              onTripDirectionChange={setTripDirection}
               isCalculating={isCalculating}
             />
 
@@ -885,10 +977,19 @@ export default function SelectLocationPage() {
               </div>
             )}
 
+            {/* Date/time required warning */}
+            {(!scheduledDate || !selectedSlot) && pickup && dropoff && (
+              <div className="bg-charcoal-800 border-2 border-gold-400/50 rounded-lg p-3 text-center">
+                <p className="text-sm text-gold-400">
+                  ⚠️ Please select a date and time for your ride
+                </p>
+              </div>
+            )}
+
             {/* Submit button */}
             <button
               onClick={handleSubmit}
-              disabled={!pickup || !dropoff || !pricing || isSubmitting}
+              disabled={!pickup || !dropoff || !pricing || !selectedSlot || isSubmitting}
               className="btn-primary w-full flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
@@ -897,7 +998,7 @@ export default function SelectLocationPage() {
                   <span>Confirming...</span>
                 </>
               ) : (
-                <span>Confirm Locations</span>
+                <span>Confirm Booking</span>
               )}
             </button>
 

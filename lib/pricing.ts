@@ -1,144 +1,315 @@
-import type { Zone, VehicleType, RideType, PricingResult } from '@/types'
+import type {
+  SofiaZone,
+  VehicleClass,
+  ServiceType,
+  DayRateDuration,
+  WaitTimeTier,
+  LongDistanceDestination,
+  TripDirection,
+  PricingResult,
+  PriceBreakdown,
+  VehicleType,
+  RideType,
+  Zone
+} from '@/types'
 
-/**
- * Pricing tiers based on Sofia's configuration
- * From sofia_simplified.json system prompt
- */
-const PRICING_TIERS = {
-  black_sedan: {
-    // Up to 45 minutes
-    tier1: { maxMinutes: 45, oneWay: 60, roundTrip: 108 },
-    // 45-60 minutes
-    tier2: { maxMinutes: 60, oneWay: 80, roundTrip: 144 },
-    // Special: Downtown Detroit to DTW
-    dtwDowntown: { oneWay: 50, roundTrip: 90 },
-    // 60+ minutes: base + per mile
-    longDistance: { base: 80, perMile: 2.50 }
-  },
-  black_suv: {
-    tier1: { maxMinutes: 45, oneWay: 100, roundTrip: 180 },
-    tier2: { maxMinutes: 60, oneWay: 125, roundTrip: 225 },
-    dtwDowntown: { oneWay: 75, roundTrip: 135 },
-    longDistance: { base: 125, perMile: 3.50 }
-  },
-  chauffeur: {
-    hourlyRate: 100,
-    minimumHours: 2
-  }
+// ============================================================
+// SOFIA v4.0 Pricing Engine
+// ============================================================
+
+// --- Airport Transfer Rates (flat rate by zone) ---
+
+type AirportZone = Exclude<SofiaZone, 'AIRPORT' | 'OUT_OF_AREA'>
+
+const AIRPORT_RATES: Record<AirportZone, Record<VehicleClass, number>> = {
+  DOWNTOWN:  { EXECUTIVE_SUV: 95,  PREMIER_SUV: 120 },
+  WEST:      { EXECUTIVE_SUV: 110, PREMIER_SUV: 135 },
+  NORTH:     { EXECUTIVE_SUV: 125, PREMIER_SUV: 150 },
+  EAST:      { EXECUTIVE_SUV: 125, PREMIER_SUV: 150 },
+  NORTHEAST: { EXECUTIVE_SUV: 140, PREMIER_SUV: 175 },
 }
 
-// Round trip multiplier (10% discount from 2x)
-const ROUND_TRIP_MULTIPLIER = 1.8
+// --- Hourly Rates ---
 
-// Per stop surcharge (for wait time)
-const STOP_SURCHARGE = 5
+const HOURLY_RATES: Record<VehicleClass, number> = {
+  EXECUTIVE_SUV: 85,
+  PREMIER_SUV: 110
+}
 
-interface PricingInput {
-  pickupZone: Zone
-  dropoffZone: Zone
-  durationMinutes: number
-  distanceKm: number
-  vehicleType: VehicleType
-  rideType: RideType
+const HOURLY_MINIMUM = 3 // hours
+
+// --- Day Rates ---
+
+const DAY_RATES: Record<DayRateDuration, Record<VehicleClass, number>> = {
+  '8hr':  { EXECUTIVE_SUV: 600,  PREMIER_SUV: 800 },
+  '12hr': { EXECUTIVE_SUV: 850,  PREMIER_SUV: 1100 },
+}
+
+const FUEL_INCLUDED_MILES = 150
+const FUEL_OVERAGE_PER_MILE = 0.50
+
+// --- Long Distance Rates ---
+
+const LONG_DISTANCE_RATES: Record<LongDistanceDestination, {
+  distance: number
+  oneWay: Record<VehicleClass, number>
+  roundTrip: Record<VehicleClass, number>
+}> = {
+  ANN_ARBOR:     { distance: 45,  oneWay: { EXECUTIVE_SUV: 125, PREMIER_SUV: 150 }, roundTrip: { EXECUTIVE_SUV: 225, PREMIER_SUV: 275 } },
+  LANSING:       { distance: 90,  oneWay: { EXECUTIVE_SUV: 275, PREMIER_SUV: 350 }, roundTrip: { EXECUTIVE_SUV: 500, PREMIER_SUV: 650 } },
+  GRAND_RAPIDS:  { distance: 150, oneWay: { EXECUTIVE_SUV: 400, PREMIER_SUV: 500 }, roundTrip: { EXECUTIVE_SUV: 725, PREMIER_SUV: 900 } },
+  HOLLAND:       { distance: 180, oneWay: { EXECUTIVE_SUV: 450, PREMIER_SUV: 550 }, roundTrip: { EXECUTIVE_SUV: 800, PREMIER_SUV: 1000 } },
+  TOLEDO:        { distance: 60,  oneWay: { EXECUTIVE_SUV: 175, PREMIER_SUV: 225 }, roundTrip: { EXECUTIVE_SUV: 325, PREMIER_SUV: 400 } },
+  COLUMBUS:      { distance: 200, oneWay: { EXECUTIVE_SUV: 500, PREMIER_SUV: 600 }, roundTrip: { EXECUTIVE_SUV: 900, PREMIER_SUV: 1100 } },
+  CLEVELAND:     { distance: 170, oneWay: { EXECUTIVE_SUV: 400, PREMIER_SUV: 500 }, roundTrip: { EXECUTIVE_SUV: 725, PREMIER_SUV: 900 } },
+  CHICAGO:       { distance: 280, oneWay: { EXECUTIVE_SUV: 700, PREMIER_SUV: 875 }, roundTrip: { EXECUTIVE_SUV: 1250, PREMIER_SUV: 1550 } },
+  INDIANAPOLIS:  { distance: 280, oneWay: { EXECUTIVE_SUV: 700, PREMIER_SUV: 875 }, roundTrip: { EXECUTIVE_SUV: 1250, PREMIER_SUV: 1550 } },
+  CINCINNATI:    { distance: 270, oneWay: { EXECUTIVE_SUV: 650, PREMIER_SUV: 800 }, roundTrip: { EXECUTIVE_SUV: 1150, PREMIER_SUV: 1400 } },
+}
+
+// --- Wait Time Rates (Long Distance add-on) ---
+
+const WAIT_TIME_RATES: Record<Exclude<WaitTimeTier, 'NONE' | 'ALL_DAY'>, Record<VehicleClass, number>> = {
+  SHORT:    { EXECUTIVE_SUV: 50,  PREMIER_SUV: 65 },
+  DINNER:   { EXECUTIVE_SUV: 125, PREMIER_SUV: 175 },
+  EXTENDED: { EXECUTIVE_SUV: 225, PREMIER_SUV: 300 },
+}
+
+// --- Multi-Stop ---
+
+const MULTI_STOP_SURCHARGE = 15 // $15 per additional stop
+const MAX_MULTI_STOPS = 2
+
+// ============================================================
+// Pricing Input
+// ============================================================
+
+export interface PricingInput {
+  serviceType: ServiceType
+  vehicleClass: VehicleClass
+  pickupZone: SofiaZone
+  dropoffZone: SofiaZone
   numStops?: number
+  estimatedHours?: number
+  dayRateDuration?: DayRateDuration
+  longDistanceDestination?: LongDistanceDestination
+  tripDirection?: TripDirection
+  waitTimeTier?: WaitTimeTier
+  overtimeMinutes?: number
+  totalMiles?: number
 }
 
-/**
- * Check if route is DTW-Downtown special pricing
- */
-function isDtwDowntownRoute(pickupZone: Zone, dropoffZone: Zone): boolean {
-  return (
-    (pickupZone === 'airport' && dropoffZone === 'downtown') ||
-    (pickupZone === 'downtown' && dropoffZone === 'airport')
-  )
-}
+// ============================================================
+// Main Pricing Function
+// ============================================================
 
-/**
- * Calculate price based on Sofia's pricing structure
- */
 export function calculatePrice(input: PricingInput): PricingResult {
-  const { pickupZone, dropoffZone, durationMinutes, distanceKm, vehicleType, rideType, numStops = 0 } = input
-  const stopSurcharge = numStops * STOP_SURCHARGE
+  switch (input.serviceType) {
+    case 'AIRPORT':
+      return calculateAirportPrice(input)
+    case 'HOURLY':
+      return calculateHourlyPrice(input)
+    case 'DAY_RATE':
+      return calculateDayRatePrice(input)
+    case 'LONG_DISTANCE':
+      return calculateLongDistancePrice(input)
+    case 'MULTI_STOP':
+      return calculateMultiStopPrice(input)
+    default:
+      return calculateHourlyPrice(input)
+  }
+}
 
-  // Chauffeur service (hourly)
-  if (vehicleType === 'chauffeur' || rideType === 'hourly') {
-    const tiers = PRICING_TIERS.chauffeur
-    const hours = Math.max(tiers.minimumHours, Math.ceil(durationMinutes / 60))
-    const baseTotal = hours * tiers.hourlyRate
-    const total = baseTotal + stopSurcharge
-    const stopsNote = numStops > 0 ? ` + ${numStops} stop${numStops > 1 ? 's' : ''}` : ''
+// ============================================================
+// Service-Specific Calculators
+// ============================================================
 
-    return {
-      total,
-      breakdown: {
-        base: baseTotal,
-        zoneSurcharge: stopSurcharge,
-        total,
-        description: `Chauffeur Service - ${hours} hours @ $${tiers.hourlyRate}/hr${stopsNote}`
-      }
-    }
+function calculateAirportPrice(input: PricingInput): PricingResult {
+  const { vehicleClass, pickupZone, dropoffZone } = input
+
+  // Determine which zone is non-airport (the client's zone)
+  const clientZone = pickupZone === 'AIRPORT' ? dropoffZone : pickupZone
+
+  // If both zones are AIRPORT or client zone is OUT_OF_AREA, fallback
+  if (clientZone === 'AIRPORT' || clientZone === 'OUT_OF_AREA') {
+    // Edge case: airport-to-airport or OUT_OF_AREA airport transfer
+    // Use DOWNTOWN rate as default
+    const base = AIRPORT_RATES.DOWNTOWN[vehicleClass]
+    return buildResult(base, 0, 0, `Airport Transfer (${getVehicleDisplayName(vehicleClass)})`)
   }
 
-  const tiers = PRICING_TIERS[vehicleType]
-  const isRoundTrip = rideType === 'round_trip'
+  const base = AIRPORT_RATES[clientZone][vehicleClass]
+  const zoneName = getZoneLabel(clientZone)
+  return buildResult(base, 0, 0, `Airport Transfer — ${zoneName} (${getVehicleDisplayName(vehicleClass)})`)
+}
 
-  // Check for DTW-Downtown special pricing
-  if (isDtwDowntownRoute(pickupZone, dropoffZone)) {
-    const basePrice = isRoundTrip ? tiers.dtwDowntown.roundTrip : tiers.dtwDowntown.oneWay
-    const total = basePrice + stopSurcharge
-    const vehicleLabel = vehicleType === 'black_sedan' ? 'Black Sedan' : 'Black SUV'
-    const stopsNote = numStops > 0 ? ` + ${numStops} stop${numStops > 1 ? 's' : ''}` : ''
+function calculateHourlyPrice(input: PricingInput): PricingResult {
+  const { vehicleClass, estimatedHours = HOURLY_MINIMUM } = input
+  const hours = Math.max(estimatedHours, HOURLY_MINIMUM)
+  const rate = HOURLY_RATES[vehicleClass]
+  const base = rate * hours
 
-    return {
-      total,
-      breakdown: {
-        base: tiers.dtwDowntown.oneWay,
-        zoneSurcharge: stopSurcharge,
-        total,
-        description: `${vehicleLabel} - DTW ↔ Downtown${isRoundTrip ? ' (Round Trip)' : ''}${stopsNote}`
-      }
-    }
+  return buildResult(base, 0, 0, `Hourly Service — ${hours}hr × $${rate}/hr (${getVehicleDisplayName(vehicleClass)})`)
+}
+
+function calculateDayRatePrice(input: PricingInput): PricingResult {
+  const { vehicleClass, dayRateDuration = '8hr', overtimeMinutes = 0, totalMiles = 0 } = input
+  const base = DAY_RATES[dayRateDuration][vehicleClass]
+
+  // Overtime in 30-min increments at hourly rate
+  let overtime = 0
+  if (overtimeMinutes > 0) {
+    const blocks = Math.ceil(overtimeMinutes / 30)
+    overtime = blocks * (HOURLY_RATES[vehicleClass] / 2) // half-hour rate
   }
 
-  // Standard tier pricing based on duration
-  let basePrice: number
-  let tierDescription: string
-
-  if (durationMinutes <= 45) {
-    basePrice = tiers.tier1.oneWay
-    tierDescription = 'Up to 45 min'
-  } else if (durationMinutes <= 60) {
-    basePrice = tiers.tier2.oneWay
-    tierDescription = '45-60 min'
-  } else {
-    // Long distance calculation
-    const distanceMiles = distanceKm * 0.621371
-    const extraMiles = Math.max(0, distanceMiles - 30) // Over 30 miles
-    const extraCharge = extraMiles * tiers.longDistance.perMile
-    basePrice = Math.round(tiers.longDistance.base + extraCharge)
-    tierDescription = `Long distance (${Math.round(distanceMiles)} mi)`
+  // Fuel surcharge beyond included miles
+  let fuel = 0
+  if (totalMiles > FUEL_INCLUDED_MILES) {
+    fuel = Math.round((totalMiles - FUEL_INCLUDED_MILES) * FUEL_OVERAGE_PER_MILE)
   }
 
-  // Apply round trip multiplier
-  const tripPrice = isRoundTrip ? Math.round(basePrice * ROUND_TRIP_MULTIPLIER) : basePrice
-  const total = tripPrice + stopSurcharge
-  const vehicleLabel = vehicleType === 'black_sedan' ? 'Black Sedan' : 'Black SUV'
-  const stopsNote = numStops > 0 ? ` + ${numStops} stop${numStops > 1 ? 's' : ''}` : ''
+  const total = base + overtime + fuel
+  const durationLabel = dayRateDuration === '8hr' ? '8-Hour Day' : '12-Hour Day'
+  let desc = `${durationLabel} Rate (${getVehicleDisplayName(vehicleClass)})`
+  if (overtime > 0) desc += ` + $${overtime} overtime`
+  if (fuel > 0) desc += ` + $${fuel} fuel surcharge`
 
   return {
     total,
+    fareCents: total * 100,
     breakdown: {
-      base: basePrice,
-      zoneSurcharge: stopSurcharge,
+      base,
+      stopSurcharge: 0,
+      waitTimeSurcharge: overtime + fuel,
       total,
-      description: `${vehicleLabel} - ${tierDescription}${isRoundTrip ? ' (Round Trip)' : ''}${stopsNote}`
+      description: desc
     }
   }
 }
 
-/**
- * Format price for display
- */
+function calculateLongDistancePrice(input: PricingInput): PricingResult {
+  const {
+    vehicleClass,
+    longDistanceDestination,
+    tripDirection = 'one_way',
+    waitTimeTier = 'NONE'
+  } = input
+
+  if (!longDistanceDestination || !LONG_DISTANCE_RATES[longDistanceDestination]) {
+    // Unknown destination — return a placeholder
+    return buildResult(0, 0, 0, 'Long Distance — Select destination for quote')
+  }
+
+  const destRates = LONG_DISTANCE_RATES[longDistanceDestination]
+  const base = tripDirection === 'round_trip'
+    ? destRates.roundTrip[vehicleClass]
+    : destRates.oneWay[vehicleClass]
+
+  // Wait time add-on
+  let waitCharge = 0
+  if (waitTimeTier === 'ALL_DAY') {
+    // Convert to day rate
+    const dayRate = DAY_RATES['8hr'][vehicleClass]
+    return buildResult(dayRate, 0, 0,
+      `Long Distance — ${getDestinationLabel(longDistanceDestination)} (converted to Day Rate, ${getVehicleDisplayName(vehicleClass)})`)
+  }
+  if (waitTimeTier !== 'NONE') {
+    waitCharge = WAIT_TIME_RATES[waitTimeTier][vehicleClass]
+  }
+
+  const total = base + waitCharge
+  const tripLabel = tripDirection === 'round_trip' ? 'Round Trip' : 'One Way'
+  const destLabel = getDestinationLabel(longDistanceDestination)
+  let desc = `Long Distance — ${destLabel} ${tripLabel} (${getVehicleDisplayName(vehicleClass)})`
+  if (waitCharge > 0) {
+    desc += ` + ${getWaitTimeLabel(waitTimeTier)} wait`
+  }
+
+  return {
+    total,
+    fareCents: total * 100,
+    breakdown: {
+      base,
+      stopSurcharge: 0,
+      waitTimeSurcharge: waitCharge,
+      total,
+      description: desc
+    }
+  }
+}
+
+function calculateMultiStopPrice(input: PricingInput): PricingResult {
+  const { vehicleClass, pickupZone, dropoffZone, numStops = 0 } = input
+
+  // Base is the airport transfer rate
+  const clientZone = pickupZone === 'AIRPORT' ? dropoffZone : pickupZone
+  const safeZone: AirportZone = (clientZone === 'AIRPORT' || clientZone === 'OUT_OF_AREA') ? 'DOWNTOWN' : clientZone
+  const base = AIRPORT_RATES[safeZone][vehicleClass]
+
+  const stops = Math.min(numStops, MAX_MULTI_STOPS)
+  const stopSurcharge = stops * MULTI_STOP_SURCHARGE
+  const total = base + stopSurcharge
+
+  const zoneName = getZoneLabel(safeZone)
+  const stopsNote = stops > 0 ? ` + ${stops} stop${stops > 1 ? 's' : ''}` : ''
+  return {
+    total,
+    fareCents: total * 100,
+    breakdown: {
+      base,
+      stopSurcharge,
+      waitTimeSurcharge: 0,
+      total,
+      description: `Airport Transfer — ${zoneName}${stopsNote} (${getVehicleDisplayName(vehicleClass)})`
+    }
+  }
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+
+function buildResult(base: number, stopSurcharge: number, waitTimeSurcharge: number, description: string): PricingResult {
+  const total = base + stopSurcharge + waitTimeSurcharge
+  return {
+    total,
+    fareCents: total * 100,
+    breakdown: { base, stopSurcharge, waitTimeSurcharge, total, description }
+  }
+}
+
+function getZoneLabel(zone: SofiaZone): string {
+  const labels: Record<SofiaZone, string> = {
+    DOWNTOWN: 'Downtown', WEST: 'West', NORTH: 'North',
+    EAST: 'East', NORTHEAST: 'Northeast',
+    AIRPORT: 'Airport', OUT_OF_AREA: 'Out of Area'
+  }
+  return labels[zone]
+}
+
+function getDestinationLabel(dest: LongDistanceDestination): string {
+  const labels: Record<LongDistanceDestination, string> = {
+    ANN_ARBOR: 'Ann Arbor', LANSING: 'Lansing', GRAND_RAPIDS: 'Grand Rapids',
+    HOLLAND: 'Holland, MI', TOLEDO: 'Toledo, OH', COLUMBUS: 'Columbus, OH',
+    CLEVELAND: 'Cleveland, OH', CHICAGO: 'Chicago, IL',
+    INDIANAPOLIS: 'Indianapolis, IN', CINCINNATI: 'Cincinnati, OH'
+  }
+  return labels[dest]
+}
+
+function getWaitTimeLabel(tier: WaitTimeTier): string {
+  const labels: Record<WaitTimeTier, string> = {
+    NONE: '', SHORT: 'short (≤1hr)', DINNER: 'dinner (1-3hr)',
+    EXTENDED: 'extended (3-6hr)', ALL_DAY: 'all-day'
+  }
+  return labels[tier]
+}
+
+// ============================================================
+// Display Helpers
+// ============================================================
+
 export function formatPrice(amount: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -148,21 +319,48 @@ export function formatPrice(amount: number): string {
   }).format(amount)
 }
 
-/**
- * Get vehicle type display name
- */
-export function getVehicleDisplayName(vehicleType: VehicleType): string {
+export function getVehicleDisplayName(vehicleClass: VehicleClass): string {
+  const names: Record<VehicleClass, string> = {
+    EXECUTIVE_SUV: 'Executive SUV',
+    PREMIER_SUV: 'Premier SUV'
+  }
+  return names[vehicleClass]
+}
+
+export function getServiceTypeDisplayName(serviceType: ServiceType): string {
+  const names: Record<ServiceType, string> = {
+    AIRPORT: 'Airport Transfer',
+    HOURLY: 'Hourly Service',
+    DAY_RATE: 'Day Rate',
+    LONG_DISTANCE: 'Long Distance',
+    MULTI_STOP: 'Airport + Stops'
+  }
+  return names[serviceType]
+}
+
+export function getVehicleCapacity(vehicleClass: VehicleClass): number {
+  return vehicleClass === 'PREMIER_SUV' ? 6 : 4
+}
+
+// Export rate tables for UI components that need them
+export { AIRPORT_RATES, HOURLY_RATES, DAY_RATES, LONG_DISTANCE_RATES, WAIT_TIME_RATES }
+export { HOURLY_MINIMUM, MAX_MULTI_STOPS, MULTI_STOP_SURCHARGE }
+
+// ============================================================
+// DEPRECATED — backward compatibility
+// ============================================================
+
+/** @deprecated Use VehicleClass-based getVehicleDisplayName */
+export function getVehicleDisplayNameLegacy(vehicleType: VehicleType): string {
   const names: Record<VehicleType, string> = {
-    black_sedan: 'Black Sedan',
     black_suv: 'Black SUV',
+    luxury_black_suv: 'Luxury Black SUV',
     chauffeur: 'Chauffeur Service'
   }
   return names[vehicleType]
 }
 
-/**
- * Get ride type display name
- */
+/** @deprecated Use ServiceType-based getServiceTypeDisplayName */
 export function getRideTypeDisplayName(rideType: RideType): string {
   const names: Record<RideType, string> = {
     one_way: 'One Way',

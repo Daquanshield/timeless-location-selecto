@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
-import { detectZone } from '@/lib/zones'
+import { detectSofiaZone } from '@/lib/zones'
 import {
   rateLimit,
   isValidToken,
@@ -12,7 +12,17 @@ import {
   createWebhookHeaders,
   getClientIp
 } from '@/lib/security'
-import type { SubmitSelectionRequest, SubmitSelectionResponse } from '@/types'
+import { getVehicleCapacity } from '@/lib/pricing'
+import type {
+  SubmitSelectionRequest,
+  SubmitSelectionResponse,
+  VehicleClass,
+  ServiceType,
+  DayRateDuration,
+  WaitTimeTier,
+  LongDistanceDestination,
+  TripDirection
+} from '@/types'
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,7 +50,21 @@ export async function POST(request: NextRequest) {
     }
 
     const body: SubmitSelectionRequest = await request.json()
-    const { token, pickup, dropoff, stops = [], route, pricing, vehicleType, rideType, scheduledDate, specialInstructions } = body
+    const {
+      token, pickup, dropoff, stops = [], route, pricing,
+      // SOFIA v4 fields
+      vehicleClass: rawVehicleClass,
+      serviceType: rawServiceType,
+      estimatedHours,
+      dayRateDuration,
+      waitTimeTier,
+      longDistanceDestination,
+      tripDirection,
+      passengerCount, scheduledDate, specialInstructions,
+      // Deprecated fields (backward compat)
+      vehicleType,
+      rideType
+    } = body
 
     // Validate token format
     if (!isValidToken(token)) {
@@ -86,9 +110,10 @@ export async function POST(request: NextRequest) {
       lng: dropoffLng
     }
 
+    // Max 2 stops per SOFIA v4 spec
     const sanitizedStops = stops
       .filter(s => s.lat && s.lng && s.address)
-      .slice(0, 3)
+      .slice(0, 2)
       .map(s => ({
         address: sanitizeAddress(s.address),
         lat: sanitizeCoordinate(s.lat, 'lat') || 0,
@@ -98,11 +123,45 @@ export async function POST(request: NextRequest) {
 
     const sanitizedInstructions = sanitizeString(specialInstructions, 500)
 
-    // Validate vehicle and ride types
-    const validVehicleTypes = ['black_suv', 'luxury_black_suv', 'chauffeur']
-    const validRideTypes = ['one_way', 'round_trip', 'hourly']
-    const safeVehicleType = validVehicleTypes.includes(vehicleType) ? vehicleType : 'black_suv'
-    const safeRideType = validRideTypes.includes(rideType) ? rideType : 'one_way'
+    // Resolve vehicle class (support old vehicleType field)
+    const validVehicleClasses: VehicleClass[] = ['EXECUTIVE_SUV', 'PREMIER_SUV']
+    let safeVehicleClass: VehicleClass = 'EXECUTIVE_SUV'
+    if (rawVehicleClass && validVehicleClasses.includes(rawVehicleClass)) {
+      safeVehicleClass = rawVehicleClass
+    } else if (vehicleType === 'luxury_black_suv') {
+      safeVehicleClass = 'PREMIER_SUV'
+    }
+
+    // Resolve service type (support old rideType field)
+    const validServiceTypes: ServiceType[] = ['AIRPORT', 'HOURLY', 'DAY_RATE', 'LONG_DISTANCE', 'MULTI_STOP']
+    let safeServiceType: ServiceType = 'AIRPORT'
+    if (rawServiceType && validServiceTypes.includes(rawServiceType)) {
+      safeServiceType = rawServiceType
+    } else if (rideType === 'hourly') {
+      safeServiceType = 'HOURLY'
+    }
+
+    // Validate optional SOFIA v4 fields
+    const validDayRateDurations: DayRateDuration[] = ['8hr', '12hr']
+    const safeDayRateDuration = dayRateDuration && validDayRateDurations.includes(dayRateDuration) ? dayRateDuration : null
+
+    const validWaitTimeTiers: WaitTimeTier[] = ['NONE', 'SHORT', 'DINNER', 'EXTENDED', 'ALL_DAY']
+    const safeWaitTimeTier = waitTimeTier && validWaitTimeTiers.includes(waitTimeTier) ? waitTimeTier : 'NONE'
+
+    const validLongDistanceDestinations: LongDistanceDestination[] = [
+      'ANN_ARBOR', 'LANSING', 'GRAND_RAPIDS', 'HOLLAND', 'TOLEDO',
+      'COLUMBUS', 'CLEVELAND', 'CHICAGO', 'INDIANAPOLIS', 'CINCINNATI'
+    ]
+    const safeLongDistanceDest = longDistanceDestination && validLongDistanceDestinations.includes(longDistanceDestination) ? longDistanceDestination : null
+
+    const validTripDirections: TripDirection[] = ['one_way', 'round_trip']
+    const safeTripDirection = tripDirection && validTripDirections.includes(tripDirection) ? tripDirection : 'one_way'
+
+    const safeEstimatedHours = typeof estimatedHours === 'number' && estimatedHours >= 1 && estimatedHours <= 24 ? estimatedHours : null
+
+    // Validate and sanitize passenger count (capped by vehicle capacity)
+    const maxPassengers = getVehicleCapacity(safeVehicleClass)
+    const safePassengerCount = Math.min(maxPassengers, Math.max(1, Math.floor(Number(passengerCount) || 1)))
 
     // Validate pricing (basic sanity check)
     if (typeof pricing.total !== 'number' || pricing.total < 0 || pricing.total > 10000) {
@@ -130,9 +189,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Detect zones
-    const pickupZone = detectZone(sanitizedPickup.address, sanitizedPickup.lat, sanitizedPickup.lng)
-    const dropoffZone = detectZone(sanitizedDropoff.address, sanitizedDropoff.lat, sanitizedDropoff.lng)
+    // Detect SOFIA v4 zones
+    const pickupZone = detectSofiaZone(sanitizedPickup.address, sanitizedPickup.lat, sanitizedPickup.lng)
+    const dropoffZone = detectSofiaZone(sanitizedDropoff.address, sanitizedDropoff.lat, sanitizedDropoff.lng)
 
     // Get client IP safely
     const clientIp = getClientIp(request)
@@ -159,8 +218,19 @@ export async function POST(request: NextRequest) {
         stops: sanitizedStops.length > 0 ? sanitizedStops : null,
         estimated_price: Math.round(pricing.total),
         price_breakdown: pricing.breakdown,
-        vehicle_type: safeVehicleType,
-        ride_type: safeRideType,
+        // SOFIA v4 fields
+        vehicle_class: safeVehicleClass,
+        service_type: safeServiceType,
+        fare_cents: pricing.fareCents || Math.round(pricing.total * 100),
+        estimated_hours: safeEstimatedHours,
+        day_rate_duration: safeDayRateDuration,
+        wait_time_tier: safeWaitTimeTier !== 'NONE' ? safeWaitTimeTier : null,
+        long_distance_destination: safeLongDistanceDest,
+        trip_direction: safeServiceType === 'LONG_DISTANCE' ? safeTripDirection : null,
+        // Legacy fields (backward compat)
+        vehicle_type: vehicleType || (safeVehicleClass === 'PREMIER_SUV' ? 'luxury_black_suv' : 'black_suv'),
+        ride_type: rideType || (safeServiceType === 'HOURLY' ? 'hourly' : 'one_way'),
+        passenger_count: safePassengerCount,
         scheduled_date: scheduledDate || null,
         special_instructions: sanitizedInstructions || null,
         status: 'selected',
@@ -178,7 +248,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Send webhook to n8n with HMAC signature (non-blocking)
+    // Send webhook to n8n with HMAC signature
+    // IMPORTANT: Must await this call - Vercel serverless functions terminate after response,
+    // killing any pending fire-and-forget requests
     const webhookUrl = process.env.N8N_WEBHOOK_URL
     const webhookSecret = process.env.N8N_WEBHOOK_SECRET
     if (webhookUrl && webhookSecret) {
@@ -209,15 +281,26 @@ export async function POST(request: NextRequest) {
           duration_seconds: route.durationSeconds,
           duration_text: route.durationText
         } : null,
+        // SOFIA v4 pricing fields
         pricing: {
           total: pricing.total,
+          fare_cents: pricing.fareCents || Math.round(pricing.total * 100),
           breakdown: {
             base: pricing.breakdown.base,
-            zoneSurcharge: pricing.breakdown.zoneSurcharge
+            stop_surcharge: pricing.breakdown.stopSurcharge,
+            wait_time_surcharge: pricing.breakdown.waitTimeSurcharge,
+            description: pricing.breakdown.description
           }
         },
-        vehicle_type: safeVehicleType,
-        ride_type: safeRideType,
+        // SOFIA v4 booking fields
+        vehicle_class: safeVehicleClass,
+        service_type: safeServiceType,
+        passenger_count: safePassengerCount,
+        estimated_hours: safeEstimatedHours,
+        day_rate_duration: safeDayRateDuration,
+        wait_time_tier: safeWaitTimeTier,
+        long_distance_destination: safeLongDistanceDest,
+        trip_direction: safeTripDirection,
         scheduled_date: scheduledDate || null,
         special_instructions: sanitizedInstructions || null,
         timestamp: new Date().toISOString()
@@ -226,13 +309,18 @@ export async function POST(request: NextRequest) {
       // Create signed headers
       const webhookHeaders = createWebhookHeaders(webhookPayload, webhookSecret)
 
-      fetch(webhookUrl, {
-        method: 'POST',
-        headers: webhookHeaders,
-        body: webhookPayload
-      }).catch(err => {
+      try {
+        const webhookResponse = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: webhookHeaders,
+          body: webhookPayload
+        })
+        console.log(`Webhook sent to n8n: ${webhookResponse.status} ${webhookResponse.statusText}`)
+      } catch (err) {
         console.error('Failed to send webhook to n8n:', err)
-      })
+      }
+    } else {
+      console.error('Webhook not sent: N8N_WEBHOOK_URL or N8N_WEBHOOK_SECRET not configured')
     }
 
     return NextResponse.json<SubmitSelectionResponse>({

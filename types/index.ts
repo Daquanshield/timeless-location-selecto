@@ -1,4 +1,35 @@
-// Location types
+// ============================================================
+// SOFIA v4.0 Type System
+// ============================================================
+
+// --- Core Enums ---
+
+export type VehicleClass = 'EXECUTIVE_SUV' | 'PREMIER_SUV'
+
+export type ServiceType = 'AIRPORT' | 'HOURLY' | 'DAY_RATE' | 'LONG_DISTANCE' | 'MULTI_STOP'
+
+export type SofiaZone = 'DOWNTOWN' | 'WEST' | 'NORTH' | 'EAST' | 'NORTHEAST' | 'AIRPORT' | 'OUT_OF_AREA'
+
+export type DayRateDuration = '8hr' | '12hr'
+
+export type WaitTimeTier = 'NONE' | 'SHORT' | 'DINNER' | 'EXTENDED' | 'ALL_DAY'
+
+export type TripDirection = 'one_way' | 'round_trip'
+
+export type LongDistanceDestination =
+  | 'ANN_ARBOR'
+  | 'LANSING'
+  | 'GRAND_RAPIDS'
+  | 'HOLLAND'
+  | 'TOLEDO'
+  | 'COLUMBUS'
+  | 'CLEVELAND'
+  | 'CHICAGO'
+  | 'INDIANAPOLIS'
+  | 'CINCINNATI'
+
+// --- Location Types ---
+
 export interface Location {
   address: string
   placeId?: string
@@ -7,10 +38,11 @@ export interface Location {
   zone?: string
 }
 
-// Stop for multi-stop routes
 export interface Stop extends Location {
-  id: string  // Unique identifier for React keys
+  id: string
 }
+
+// --- Route & Pricing ---
 
 export interface RouteInfo {
   distanceMeters: number
@@ -22,21 +54,20 @@ export interface RouteInfo {
 
 export interface PriceBreakdown {
   base: number
-  zoneSurcharge: number
+  stopSurcharge: number
+  waitTimeSurcharge: number
   total: number
   description: string
 }
 
 export interface PricingResult {
   total: number
+  fareCents: number
   breakdown: PriceBreakdown
 }
 
-export type VehicleType = 'black_sedan' | 'black_suv' | 'chauffeur'
-export type RideType = 'one_way' | 'round_trip' | 'hourly'
-export type Zone = 'airport' | 'downtown' | 'birmingham' | 'suburbs' | 'detroit' | 'ann-arbor' | 'general'
+// --- Session ---
 
-// Session types
 export interface LocationSession {
   id: string
   token: string
@@ -51,7 +82,8 @@ export interface LocationSession {
   createdAt: string
 }
 
-// API types
+// --- API Request/Response Types ---
+
 export interface ValidateTokenResponse {
   valid: boolean
   session?: LocationSession
@@ -63,6 +95,14 @@ export interface CalculateRouteRequest {
   pickup: Location
   dropoff: Location
   stops?: Stop[]
+  vehicleClass?: VehicleClass
+  serviceType?: ServiceType
+  estimatedHours?: number
+  dayRateDuration?: DayRateDuration
+  waitTimeTier?: WaitTimeTier
+  longDistanceDestination?: LongDistanceDestination
+  tripDirection?: TripDirection
+  // Deprecated fields for backward compat
   vehicleType?: VehicleType
   rideType?: RideType
 }
@@ -70,10 +110,11 @@ export interface CalculateRouteRequest {
 export interface CalculateRouteResponse {
   route: RouteInfo
   zones: {
-    pickup: Zone
-    dropoff: Zone
+    pickup: SofiaZone
+    dropoff: SofiaZone
   }
   pricing: PricingResult
+  detectedServiceType: ServiceType
 }
 
 export interface SubmitSelectionRequest {
@@ -83,10 +124,19 @@ export interface SubmitSelectionRequest {
   stops?: Stop[]
   route: RouteInfo
   pricing: PricingResult
-  vehicleType: VehicleType
-  rideType: RideType
-  scheduledDate?: string  // ISO date string for scheduled pickup
-  specialInstructions?: string  // Airport terminal, gate, building entrance, etc.
+  vehicleClass: VehicleClass
+  serviceType: ServiceType
+  passengerCount?: number
+  scheduledDate?: string
+  specialInstructions?: string
+  estimatedHours?: number
+  dayRateDuration?: DayRateDuration
+  waitTimeTier?: WaitTimeTier
+  longDistanceDestination?: LongDistanceDestination
+  tripDirection?: TripDirection
+  // Deprecated fields for backward compat
+  vehicleType?: VehicleType
+  rideType?: RideType
 }
 
 export interface SubmitSelectionResponse {
@@ -95,9 +145,47 @@ export interface SubmitSelectionResponse {
   redirect?: string
 }
 
-// Customer memory (from Sofia)
+// --- Customer Memory ---
+
 export interface CustomerMemory {
   usualPickupAddress?: string
   usualDropoffAddress?: string
-  preferredVehicle?: VehicleType
+  preferredVehicle?: VehicleClass
+}
+
+// ============================================================
+// DEPRECATED — kept for backward compatibility during migration
+// ============================================================
+
+/** @deprecated Use VehicleClass instead */
+export type VehicleType = 'black_suv' | 'luxury_black_suv' | 'chauffeur'
+
+/** @deprecated Use ServiceType instead */
+export type RideType = 'one_way' | 'round_trip' | 'hourly'
+
+/** @deprecated Use SofiaZone instead */
+export type Zone = 'airport' | 'downtown' | 'birmingham' | 'suburbs' | 'detroit' | 'ann-arbor' | 'general'
+
+// --- Migration Helpers ---
+
+export function migrateVehicleType(old: VehicleType): VehicleClass {
+  switch (old) {
+    case 'luxury_black_suv': return 'PREMIER_SUV'
+    case 'black_suv':
+    case 'chauffeur':
+    default: return 'EXECUTIVE_SUV'
+  }
+}
+
+export function migrateZone(old: Zone): SofiaZone {
+  switch (old) {
+    case 'airport': return 'AIRPORT'
+    case 'downtown': return 'DOWNTOWN'
+    case 'detroit': return 'DOWNTOWN'
+    case 'birmingham': return 'NORTH'
+    case 'ann-arbor': return 'OUT_OF_AREA'
+    case 'suburbs': return 'WEST' // best default; real detection uses address
+    case 'general':
+    default: return 'OUT_OF_AREA'
+  }
 }

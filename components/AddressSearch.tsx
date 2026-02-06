@@ -14,6 +14,7 @@ interface AddressSearchProps {
   isActive: boolean
   onFocus: () => void
   icon: 'pickup' | 'dropoff'
+  userLocation?: { lat: number; lng: number } | null
 }
 
 interface Suggestion {
@@ -30,7 +31,8 @@ export default function AddressSearch({
   onSelect,
   isActive,
   onFocus,
-  icon
+  icon,
+  userLocation
 }: AddressSearchProps) {
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
@@ -68,16 +70,23 @@ export default function AddressSearch({
     setIsLoading(true)
 
     try {
-      const bbox = `${METRO_DETROIT.bounds.sw.lng},${METRO_DETROIT.bounds.sw.lat},${METRO_DETROIT.bounds.ne.lng},${METRO_DETROIT.bounds.ne.lat}`
-
-      const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQuery)}.json?` +
+      // Build URL with proximity biasing if user location is available
+      let url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQuery)}.json?` +
         `access_token=${MAPBOX_TOKEN}&` +
-        `bbox=${bbox}&` +
         `country=US&` +
         `types=address,poi,place&` +
         `limit=5`
-      )
+
+      // Add proximity if user location is available (biases results toward user)
+      if (userLocation) {
+        url += `&proximity=${userLocation.lng},${userLocation.lat}`
+      } else {
+        // Fall back to Detroit area bounding box
+        const bbox = `${METRO_DETROIT.bounds.sw.lng},${METRO_DETROIT.bounds.sw.lat},${METRO_DETROIT.bounds.ne.lng},${METRO_DETROIT.bounds.ne.lat}`
+        url += `&bbox=${bbox}`
+      }
+
+      const response = await fetch(url)
 
       if (!response.ok) throw new Error('Search failed')
 
@@ -98,7 +107,7 @@ export default function AddressSearch({
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [userLocation])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newQuery = e.target.value
