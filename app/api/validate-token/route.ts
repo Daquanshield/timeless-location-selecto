@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
       conversationId: data.conversation_id,
       prefillPickup: data.prefill_pickup,
       prefillDropoff: data.prefill_dropoff,
+      prefillDatetime: data.prefill_datetime,
       status: data.status,
       expiresAt: data.expires_at,
       createdAt: data.created_at

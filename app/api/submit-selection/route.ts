@@ -12,7 +12,7 @@ import {
   createWebhookHeaders,
   getClientIp
 } from '@/lib/security'
-import { getVehicleCapacity } from '@/lib/pricing'
+import { getVehicleCapacity, getVehicleDisplayName, getServiceTypeDisplayName, formatPrice } from '@/lib/pricing'
 import type {
   SubmitSelectionRequest,
   SubmitSelectionResponse,
@@ -23,6 +23,51 @@ import type {
   LongDistanceDestination,
   TripDirection
 } from '@/types'
+
+// GHL appointment creation constants
+const GHL_CALENDAR_ID = 'SuCiIaa9kJOjTlwirO74'
+const GHL_API_KEY = 'pit-43964b83-eaaf-4d1c-9296-79ca285270d8'
+const GHL_LOCATION_ID = '9f8lj2gn9ldOJVzae8bT'
+
+/**
+ * Calculate appointment end time based on service type.
+ */
+function calculateEndTime(startTime: string, serviceType: ServiceType, opts: {
+  routeDurationSeconds?: number
+  estimatedHours?: number | null
+  dayRateDuration?: string | null
+}): string {
+  const start = new Date(startTime)
+  let durationMinutes: number
+
+  switch (serviceType) {
+    case 'AIRPORT':
+    case 'MULTI_STOP':
+      // Route duration + 30min for airport logistics, minimum 90min
+      durationMinutes = Math.max(
+        Math.ceil((opts.routeDurationSeconds || 3600) / 60) + 30,
+        90
+      )
+      break
+    case 'HOURLY':
+      durationMinutes = Math.max(opts.estimatedHours || 3, 3) * 60
+      break
+    case 'DAY_RATE':
+      durationMinutes = opts.dayRateDuration === '12hr' ? 720 : 480
+      break
+    case 'LONG_DISTANCE':
+      // Route duration × 2 (round trip) + 60min buffer, minimum 3 hours
+      durationMinutes = Math.max(
+        Math.ceil((opts.routeDurationSeconds || 7200) / 60) * 2 + 60,
+        180
+      )
+      break
+    default:
+      durationMinutes = 120
+  }
+
+  return new Date(start.getTime() + durationMinutes * 60 * 1000).toISOString()
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -248,6 +293,89 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Create GHL appointment as UNCONFIRMED (payment not yet collected)
+    let ghlAppointmentId: string | null = null
+    if (scheduledDate && session.contact_id) {
+      try {
+        const appointmentEndTime = calculateEndTime(scheduledDate, safeServiceType, {
+          routeDurationSeconds: route?.durationSeconds,
+          estimatedHours: safeEstimatedHours,
+          dayRateDuration: safeDayRateDuration
+        })
+
+        // Build descriptive title and notes
+        const vehicleLabel = getVehicleDisplayName(safeVehicleClass)
+        const serviceLabel = getServiceTypeDisplayName(safeServiceType)
+        const priceLabel = formatPrice(pricing.total)
+        const appointmentTitle = `${serviceLabel} — ${vehicleLabel} — ${priceLabel} (UNCONFIRMED)`
+
+        const noteLines = [
+          `Service: ${serviceLabel}`,
+          `Vehicle: ${vehicleLabel}`,
+          `Passengers: ${safePassengerCount}`,
+          `Price: ${priceLabel}`,
+          `Status: UNCONFIRMED — Awaiting Payment`,
+          '',
+          `Pickup: ${sanitizedPickup.address}`,
+          `Dropoff: ${sanitizedDropoff.address}`,
+          ...(sanitizedStops.length > 0 ? sanitizedStops.map((s, i) => `Stop ${i + 1}: ${s.address}`) : []),
+          ...(route ? [`Distance: ${route.distanceText}`, `ETA: ${route.durationText}`] : []),
+          ...(safeLongDistanceDest ? [`Destination: ${safeLongDistanceDest}`] : []),
+          ...(safeTripDirection !== 'one_way' && safeServiceType === 'LONG_DISTANCE' ? [`Direction: Round Trip`] : []),
+          ...(safeWaitTimeTier !== 'NONE' && safeServiceType === 'LONG_DISTANCE' ? [`Wait Time: ${safeWaitTimeTier}`] : []),
+          ...(sanitizedInstructions ? [`\nSpecial Instructions: ${sanitizedInstructions}`] : []),
+          '',
+          `[DROPOFF_COORDS]${sanitizedDropoff.lat},${sanitizedDropoff.lng}[/DROPOFF_COORDS]`,
+          `[PICKUP_ZONE]${pickupZone}[/PICKUP_ZONE]`,
+          `[DROPOFF_ZONE]${dropoffZone}[/DROPOFF_ZONE]`
+        ]
+
+        const ghlResponse = await fetch('https://services.leadconnectorhq.com/calendars/events/appointments', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${GHL_API_KEY}`,
+            'Version': '2021-04-15'
+          },
+          body: JSON.stringify({
+            calendarId: GHL_CALENDAR_ID,
+            locationId: GHL_LOCATION_ID,
+            contactId: session.contact_id,
+            startTime: scheduledDate,
+            endTime: appointmentEndTime,
+            title: appointmentTitle,
+            appointmentStatus: 'new',
+            address: sanitizedPickup.address,
+            notes: noteLines.join('\n')
+          })
+        })
+
+        if (ghlResponse.ok) {
+          const ghlData = await ghlResponse.json()
+          ghlAppointmentId = ghlData.id || ghlData.appointmentId || null
+          console.log(`GHL appointment created (unconfirmed): ${ghlAppointmentId}`)
+
+          // Store appointment ID back in Supabase
+          if (ghlAppointmentId) {
+            await supabase
+              .from('location_selections')
+              .update({ ghl_appointment_id: ghlAppointmentId })
+              .eq('token', token)
+          }
+        } else {
+          const errText = await ghlResponse.text()
+          console.error(`GHL appointment creation failed: ${ghlResponse.status}`, errText)
+        }
+      } catch (err) {
+        console.error('Failed to create GHL appointment:', err)
+        // Don't fail the submission — appointment can be created manually
+      }
+    } else {
+      if (!scheduledDate) console.log('No scheduled date — skipping GHL appointment creation')
+      if (!session.contact_id) console.log('No contact_id — skipping GHL appointment creation')
+    }
+
     // Send webhook to n8n with HMAC signature
     // IMPORTANT: Must await this call - Vercel serverless functions terminate after response,
     // killing any pending fire-and-forget requests
@@ -303,6 +431,7 @@ export async function POST(request: NextRequest) {
         trip_direction: safeTripDirection,
         scheduled_date: scheduledDate || null,
         special_instructions: sanitizedInstructions || null,
+        ghl_appointment_id: ghlAppointmentId,
         timestamp: new Date().toISOString()
       })
 

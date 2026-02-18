@@ -222,6 +222,30 @@ export default function SelectLocationPage() {
           setDropoff(loc)
         }
       }
+
+      // Prefill date/time if provided (e.g., "2026-02-14T06:00:00-05:00")
+      if (session.prefillDatetime && !scheduledDate) {
+        try {
+          const dt = new Date(session.prefillDatetime)
+          if (!isNaN(dt.getTime())) {
+            // Extract date in YYYY-MM-DD format (local Detroit time)
+            const detroitStr = dt.toLocaleString('en-US', { timeZone: 'America/Detroit' })
+            const detroitDate = new Date(detroitStr)
+            const year = detroitDate.getFullYear()
+            const month = String(detroitDate.getMonth() + 1).padStart(2, '0')
+            const day = String(detroitDate.getDate()).padStart(2, '0')
+            const dateStr = `${year}-${month}-${day}`
+            setScheduledDate(dateStr)
+
+            // Store the requested time so we can auto-select the closest slot
+            const hours = String(detroitDate.getHours()).padStart(2, '0')
+            const minutes = String(detroitDate.getMinutes()).padStart(2, '0')
+            setScheduledTime(`${hours}:${minutes}`)
+          }
+        } catch (e) {
+          console.error('Failed to parse prefill datetime:', e)
+        }
+      }
     }
 
     doPrefill()
@@ -249,6 +273,30 @@ export default function SelectLocationPage() {
         const data = await response.json()
         if (data.slots) {
           setAvailableSlots(data.slots)
+
+          // Auto-select closest slot if we have a prefilled time
+          if (scheduledTime && data.slots.length > 0) {
+            const [prefillH, prefillM] = scheduledTime.split(':').map(Number)
+            const prefillMinutes = prefillH * 60 + prefillM
+
+            let closest = data.slots[0]
+            let closestDiff = Infinity
+
+            for (const slot of data.slots) {
+              // Extract hour/minute from slot time string (e.g., "6:00 AM")
+              const slotDate = new Date(slot.startTime)
+              const slotDetroit = new Date(slotDate.toLocaleString('en-US', { timeZone: 'America/Detroit' }))
+              const slotMinutes = slotDetroit.getHours() * 60 + slotDetroit.getMinutes()
+              const diff = Math.abs(slotMinutes - prefillMinutes)
+
+              if (diff < closestDiff) {
+                closestDiff = diff
+                closest = slot
+              }
+            }
+
+            setSelectedSlot(closest)
+          }
         } else {
           setAvailableSlots([])
         }

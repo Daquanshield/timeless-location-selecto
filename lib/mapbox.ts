@@ -12,10 +12,34 @@ export const METRO_DETROIT = {
   }
 }
 
+// Known locations that geocoding services often get wrong
+const KNOWN_LOCATIONS: Record<string, Location> = {
+  'DTW': {
+    address: 'Detroit Metropolitan Wayne County Airport (DTW), Romulus, MI 48242',
+    lat: 42.2124,
+    lng: -83.3534
+  }
+}
+
+/**
+ * Check if a query matches a known location (airports, etc.)
+ */
+function matchKnownLocation(query: string): Location | null {
+  const lower = query.toLowerCase()
+  if (lower.includes('dtw') || lower.includes('detroit metropolitan') || lower.includes('wayne county airport') || lower.includes('metro airport') || lower.includes('detroit airport')) {
+    return { ...KNOWN_LOCATIONS['DTW'] }
+  }
+  return null
+}
+
 /**
  * Geocode an address using Mapbox Geocoding API
  */
 export async function geocodeAddress(query: string): Promise<Location | null> {
+  // Check known locations first (airports, etc.)
+  const known = matchKnownLocation(query)
+  if (known) return known
+
   const bbox = `${METRO_DETROIT.bounds.sw.lng},${METRO_DETROIT.bounds.sw.lat},${METRO_DETROIT.bounds.ne.lng},${METRO_DETROIT.bounds.ne.lat}`
 
   const response = await fetch(

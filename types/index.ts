@@ -77,6 +77,7 @@ export interface LocationSession {
   conversationId?: string
   prefillPickup?: string
   prefillDropoff?: string
+  prefillDatetime?: string
   status: 'pending' | 'selected' | 'expired' | 'used'
   expiresAt: string
   createdAt: string

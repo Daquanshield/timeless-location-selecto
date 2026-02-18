@@ -184,26 +184,16 @@ export async function GET(request: NextRequest) {
     // Sort by time
     slots.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
 
-    // Filter to only show reasonable hours (6 AM - 11 PM) and reduce granularity
-    // IMPORTANT: Use Detroit timezone for hour/minute extraction, not server timezone (UTC)
+    // Filter to 30-minute intervals for cleaner display (24-hour availability)
+    // IMPORTANT: Use Detroit timezone for minute extraction, not server timezone (UTC)
     let filteredSlots = slots.filter(slot => {
       const date = new Date(slot.startTime)
-      // Get hour and minute in Detroit timezone specifically
-      const detroitHour = parseInt(date.toLocaleString('en-US', {
-        hour: 'numeric',
-        hour12: false,
-        timeZone: 'America/Detroit'
-      }))
       const detroitMinute = parseInt(date.toLocaleString('en-US', {
         minute: 'numeric',
         timeZone: 'America/Detroit'
       }))
-      // Only keep slots between 6 AM and 11 PM, at 30-minute intervals
-      const isValid = detroitHour >= 6 && detroitHour <= 23 && (detroitMinute === 0 || detroitMinute === 30)
-      if (!isValid) {
-        console.log(`Filtering out slot ${slot.startTime} - Detroit hour: ${detroitHour}, minute: ${detroitMinute}`)
-      }
-      return isValid
+      // Keep all hours (24h service), but only at 30-minute intervals
+      return detroitMinute === 0 || detroitMinute === 30
     })
 
     console.log(`After time filtering: ${filteredSlots.length} slots (from ${slots.length} total)`)
