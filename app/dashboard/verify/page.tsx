@@ -2,6 +2,8 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 function VerifyContent() {
   const searchParams = useSearchParams()
@@ -55,32 +57,32 @@ function VerifyContent() {
       {status === 'verifying' && (
         <>
           <div className="flex justify-center mb-6">
-            <div className="spinner" style={{ width: 40, height: 40 }} />
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
           </div>
-          <h1 className="font-display text-2xl text-gold mb-2">Verifying...</h1>
-          <p className="text-cream/60">Please wait</p>
+          <h1 className="font-display text-2xl text-primary mb-2">Verifying...</h1>
+          <p className="text-muted-foreground">Please wait</p>
         </>
       )}
 
       {status === 'success' && (
         <>
           <div className="text-6xl mb-6">&#9989;</div>
-          <h1 className="font-display text-2xl text-gold mb-2">Verified!</h1>
-          <p className="text-cream/60">Redirecting to your dashboard...</p>
+          <h1 className="font-display text-2xl text-primary mb-2">Verified!</h1>
+          <p className="text-muted-foreground">Redirecting to your dashboard...</p>
         </>
       )}
 
       {status === 'error' && (
         <>
           <div className="text-6xl mb-6">&#10060;</div>
-          <h1 className="font-display text-2xl text-red-400 mb-2">Login Failed</h1>
-          <p className="text-cream/60 mb-6">{error}</p>
-          <button
+          <h1 className="font-display text-2xl text-destructive mb-2">Login Failed</h1>
+          <p className="text-muted-foreground mb-6">{error}</p>
+          <Button
             onClick={() => router.push('/dashboard/login')}
-            className="btn-primary w-full"
+            className="w-full"
           >
             Try Again
-          </button>
+          </Button>
         </>
       )}
     </div>
@@ -94,9 +96,9 @@ export default function DashboardVerify() {
         fallback={
           <div className="text-center">
             <div className="flex justify-center mb-6">
-              <div className="spinner" style={{ width: 40, height: 40 }} />
+              <Loader2 className="h-10 w-10 animate-spin text-primary" />
             </div>
-            <h1 className="font-display text-2xl text-gold mb-2">Loading...</h1>
+            <h1 className="font-display text-2xl text-primary mb-2">Loading...</h1>
           </div>
         }
       >

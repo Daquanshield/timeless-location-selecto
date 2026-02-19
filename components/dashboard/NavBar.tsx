@@ -2,7 +2,12 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Menu, X, LogOut } from 'lucide-react'
 import type { UserRole } from '@/lib/dashboard-types'
+import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
+import NotificationBell from '@/components/dashboard/NotificationBell'
 
 interface NavBarProps {
   userName: string
@@ -11,8 +16,8 @@ interface NavBarProps {
 
 export default function NavBar({ userName, userRole }: NavBarProps) {
   const router = useRouter()
-  const [menuOpen, setMenuOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   const basePath = userRole === 'dispatcher' ? '/dashboard/dispatcher' : '/dashboard/driver'
 
@@ -25,84 +30,91 @@ export default function NavBar({ userName, userRole }: NavBarProps) {
   const navLinks = userRole === 'dispatcher'
     ? [
         { label: 'All Rides', href: '/dashboard/dispatcher' },
+        { label: 'Drivers', href: '/dashboard/dispatcher/drivers' },
+        { label: 'Appointments', href: '/dashboard/dispatcher/appointments' },
+        { label: 'Docs', href: '/dashboard/docs' },
       ]
     : [
         { label: 'My Rides', href: '/dashboard/driver' },
       ]
 
   return (
-    <nav className="sticky top-0 z-50 bg-charcoal border-b" style={{ borderColor: 'rgba(212, 175, 55, 0.2)' }}>
+    <nav className="sticky top-0 z-50 bg-background border-b border-border/30">
       <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
         {/* Brand */}
         <button onClick={() => router.push(basePath)} className="flex items-center gap-2">
-          <span className="font-display text-lg text-gold">Timeless Rides</span>
-          <span className="text-cream/40 text-xs hidden sm:inline">
+          <span className="font-display text-lg text-primary">Timeless Rides</span>
+          <span className="text-muted-foreground text-xs hidden sm:inline">
             {userRole === 'dispatcher' ? 'Dispatch' : 'Driver'}
           </span>
         </button>
 
         {/* Desktop links */}
-        <div className="hidden sm:flex items-center gap-6">
+        <div className="hidden sm:flex items-center gap-1">
           {navLinks.map((link) => (
-            <button
+            <Button
               key={link.href}
+              variant="ghost"
+              size="sm"
               onClick={() => router.push(link.href)}
-              className="text-cream/70 hover:text-gold text-sm transition-colors"
+              className="text-muted-foreground hover:text-primary"
             >
               {link.label}
-            </button>
+            </Button>
           ))}
-          <div className="flex items-center gap-3">
-            <span className="text-cream/50 text-sm">{userName}</span>
-            <button
-              onClick={handleLogout}
-              disabled={loggingOut}
-              className="text-cream/40 hover:text-red-400 text-sm transition-colors"
-            >
-              Logout
-            </button>
-          </div>
+          {userRole === 'dispatcher' && <NotificationBell basePath={basePath} />}
+          <Separator orientation="vertical" className="h-6 mx-2" />
+          <span className="text-muted-foreground text-sm">{userName}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="text-muted-foreground hover:text-destructive-foreground"
+          >
+            <LogOut className="h-4 w-4" />
+          </Button>
         </div>
 
-        {/* Mobile hamburger */}
-        <button
-          onClick={() => setMenuOpen(!menuOpen)}
-          className="sm:hidden text-cream/60 p-1"
-        >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            {menuOpen ? (
-              <path d="M6 18L18 6M6 6l12 12" />
-            ) : (
-              <path d="M3 12h18M3 6h18M3 18h18" />
-            )}
-          </svg>
-        </button>
+        {/* Mobile actions */}
+        <div className="sm:hidden flex items-center gap-1">
+          {userRole === 'dispatcher' && <NotificationBell basePath={basePath} />}
+          <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="text-muted-foreground">
+                {sheetOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-64 bg-background border-border">
+              <div className="flex flex-col gap-2 mt-8">
+                {navLinks.map((link) => (
+                  <Button
+                    key={link.href}
+                    variant="ghost"
+                    className="justify-start text-foreground hover:text-primary"
+                    onClick={() => { router.push(link.href); setSheetOpen(false) }}
+                  >
+                    {link.label}
+                  </Button>
+                ))}
+                <Separator className="my-2" />
+                <div className="px-4 py-2">
+                  <span className="text-muted-foreground text-sm">{userName}</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  className="justify-start text-destructive-foreground hover:text-destructive-foreground"
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  {loggingOut ? 'Logging out...' : 'Logout'}
+                </Button>
+              </div>
+            </SheetContent>
+          </Sheet>
+        </div>
       </div>
-
-      {/* Mobile menu */}
-      {menuOpen && (
-        <div className="sm:hidden border-t px-4 py-3 space-y-2" style={{ borderColor: 'rgba(212, 175, 55, 0.1)' }}>
-          {navLinks.map((link) => (
-            <button
-              key={link.href}
-              onClick={() => { router.push(link.href); setMenuOpen(false) }}
-              className="block w-full text-left text-cream/70 hover:text-gold py-2 text-sm"
-            >
-              {link.label}
-            </button>
-          ))}
-          <div className="flex items-center justify-between pt-2 border-t" style={{ borderColor: 'rgba(212, 175, 55, 0.1)' }}>
-            <span className="text-cream/50 text-sm">{userName}</span>
-            <button
-              onClick={handleLogout}
-              disabled={loggingOut}
-              className="text-red-400 text-sm"
-            >
-              {loggingOut ? 'Logging out...' : 'Logout'}
-            </button>
-          </div>
-        </div>
-      )}
     </nav>
   )
 }

@@ -34,6 +34,18 @@ export async function GET(
     return NextResponse.json({ error: 'Access denied' }, { status: 403 })
   }
 
+  // Driver privacy: strip pricing, limit client name for pre-en_route
+  if (auth.user.role === 'driver') {
+    ride.total_amount = null
+    ride.invoice_id = null
+    const preEnRouteStatuses = ['pending', 'confirmed']
+    if (preEnRouteStatuses.includes(ride.status) && ride.client_name) {
+      ride.client_name = ride.client_name.split(' ')[0]
+      ride.client_phone = null
+      ride.client_email = null
+    }
+  }
+
   return NextResponse.json({ ride })
 }
 

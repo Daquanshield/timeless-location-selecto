@@ -34,6 +34,9 @@ ALTER TABLE location_selections ADD COLUMN IF NOT EXISTS estimated_dropoff_time 
 -- Passenger count (moved from implicit to explicit column if not already present)
 ALTER TABLE location_selections ADD COLUMN IF NOT EXISTS passenger_count INTEGER;
 
+-- GHL appointment ID (for updating status after payment)
+ALTER TABLE location_selections ADD COLUMN IF NOT EXISTS ghl_appointment_id TEXT;
+
 -- ============================================================
 -- Optional: Add CHECK constraints for data integrity
 -- ============================================================

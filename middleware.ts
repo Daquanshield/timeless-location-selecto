@@ -6,6 +6,16 @@ import type { NextRequest } from 'next/server'
  * Adds security headers and basic protections
  */
 export function middleware(request: NextRequest) {
+  // Short login link: /?v=CODE → /dashboard/verify?code=CODE
+  const loginCode = request.nextUrl.searchParams.get('v')
+  if (loginCode && request.nextUrl.pathname === '/') {
+    const url = request.nextUrl.clone()
+    url.pathname = '/dashboard/verify'
+    url.searchParams.delete('v')
+    url.searchParams.set('code', loginCode)
+    return NextResponse.redirect(url)
+  }
+
   const response = NextResponse.next()
 
   // Security headers

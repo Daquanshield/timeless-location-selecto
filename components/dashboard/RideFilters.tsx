@@ -1,6 +1,12 @@
 'use client'
 
 import { useState } from 'react'
+import { Filter } from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 interface Driver {
   phone: string
@@ -26,8 +32,8 @@ export default function RideFilters({ drivers, onFilterChange }: RideFiltersProp
 
   const apply = () => {
     onFilterChange({
-      status: status || undefined,
-      driver_phone: driverPhone || undefined,
+      status: (status && status !== 'all') ? status : undefined,
+      driver_phone: (driverPhone && driverPhone !== 'all') ? driverPhone : undefined,
       date_from: dateFrom ? new Date(dateFrom).toISOString() : undefined,
       date_to: dateTo ? new Date(dateTo + 'T23:59:59').toISOString() : undefined,
     })
@@ -41,94 +47,98 @@ export default function RideFilters({ drivers, onFilterChange }: RideFiltersProp
     onFilterChange({})
   }
 
-  const hasFilters = status || driverPhone || dateFrom || dateTo
+  const hasFilters = (status && status !== 'all') || (driverPhone && driverPhone !== 'all') || dateFrom || dateTo
 
   return (
     <div className="mb-4">
       {/* Toggle button */}
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 text-cream/50 hover:text-cream text-sm mb-2"
+        className="text-muted-foreground hover:text-foreground mb-2 gap-2"
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M2 4h12M4 8h8M6 12h4" strokeLinecap="round" />
-        </svg>
+        <Filter className="h-4 w-4" />
         Filters
         {hasFilters && (
-          <span className="w-2 h-2 rounded-full bg-gold" />
+          <span className="w-2 h-2 rounded-full bg-primary" />
         )}
-      </button>
+      </Button>
 
       {open && (
-        <div className="location-card space-y-3 mb-3">
-          {/* Status */}
-          <div>
-            <label className="text-cream/40 text-xs block mb-1">Status</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              className="input-field text-sm py-2"
-            >
-              <option value="">All Statuses</option>
-              <option value="pending">Pending</option>
-              <option value="confirmed">Confirmed</option>
-              <option value="en_route">En Route</option>
-              <option value="arrived">Arrived</option>
-              <option value="in_progress">In Progress</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </div>
-
-          {/* Driver */}
-          <div>
-            <label className="text-cream/40 text-xs block mb-1">Driver</label>
-            <select
-              value={driverPhone}
-              onChange={(e) => setDriverPhone(e.target.value)}
-              className="input-field text-sm py-2"
-            >
-              <option value="">All Drivers</option>
-              {drivers.map(d => (
-                <option key={d.phone} value={d.phone}>{d.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Date range */}
-          <div className="grid grid-cols-2 gap-2">
+        <Card className="mb-3">
+          <CardContent className="p-4 space-y-3">
+            {/* Status */}
             <div>
-              <label className="text-cream/40 text-xs block mb-1">From</label>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="input-field text-sm py-2"
-              />
+              <Label className="text-muted-foreground text-xs">Status</Label>
+              <Select value={status || 'all'} onValueChange={setStatus}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="All Statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="confirmed">Confirmed</SelectItem>
+                  <SelectItem value="en_route">En Route</SelectItem>
+                  <SelectItem value="arrived">Arrived</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="completed">Completed</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div>
-              <label className="text-cream/40 text-xs block mb-1">To</label>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="input-field text-sm py-2"
-              />
-            </div>
-          </div>
 
-          {/* Actions */}
-          <div className="flex gap-2 pt-1">
-            <button onClick={apply} className="btn-primary flex-1 py-2 text-sm" style={{ minHeight: 'auto' }}>
-              Apply
-            </button>
-            {hasFilters && (
-              <button onClick={clear} className="btn-secondary py-2 px-4 text-sm">
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
+            {/* Driver */}
+            <div>
+              <Label className="text-muted-foreground text-xs">Driver</Label>
+              <Select value={driverPhone || 'all'} onValueChange={setDriverPhone}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="All Drivers" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Drivers</SelectItem>
+                  {drivers.map(d => (
+                    <SelectItem key={d.phone} value={d.phone}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Date range */}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-muted-foreground text-xs">From</Label>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-muted-foreground text-xs">To</Label>
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-1">
+              <Button onClick={apply} className="flex-1" size="sm">
+                Apply
+              </Button>
+              {hasFilters && (
+                <Button onClick={clear} variant="outline" size="sm">
+                  Clear
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

@@ -76,8 +76,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to fetch rides' }, { status: 500 })
   }
 
+  // Driver privacy: strip pricing and limit client name visibility
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let sanitizedRides: any[] = rides || []
+  if (user.role === 'driver') {
+    const preEnRouteStatuses = ['pending', 'confirmed']
+    sanitizedRides = sanitizedRides.map((ride) => {
+      const r = { ...ride, total_amount: null }
+      if (preEnRouteStatuses.includes(r.status as string) && r.client_name) {
+        r.client_name = (r.client_name as string).split(' ')[0]
+      }
+      return r
+    })
+  }
+
   return NextResponse.json({
-    rides: rides || [],
+    rides: sanitizedRides,
     total: count || 0,
     page,
     totalPages: Math.ceil((count || 0) / limit),

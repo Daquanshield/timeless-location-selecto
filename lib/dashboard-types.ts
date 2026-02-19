@@ -12,6 +12,7 @@ export type RideStatus =
   | 'in_progress'
   | 'completed'
   | 'cancelled'
+  | 'no_show'
 
 export type ConfirmationStatus =
   | 'unconfirmed'
@@ -91,6 +92,12 @@ export interface DashboardStats {
   rides_completed_today: number
   total_earnings_today: number
   unconfirmed_count: number
+  projected_earnings: number
+  payment_breakdown: {
+    paid: number
+    deposit: number
+    unpaid: number
+  }
 }
 
 // Valid status transitions
@@ -98,10 +105,26 @@ export const STATUS_TRANSITIONS: Record<RideStatus, RideStatus[]> = {
   pending: ['confirmed', 'cancelled'],
   confirmed: ['en_route', 'cancelled'],
   en_route: ['arrived', 'cancelled'],
-  arrived: ['in_progress', 'cancelled'],
+  arrived: ['in_progress', 'no_show', 'cancelled'],
   in_progress: ['completed'],
   completed: [],
   cancelled: [],
+  no_show: [],
+}
+
+// Reverse transitions for undo (go back one step)
+export const STATUS_UNDO_TRANSITIONS: Partial<Record<RideStatus, RideStatus>> = {
+  en_route: 'confirmed',
+  arrived: 'en_route',
+  in_progress: 'arrived',
+}
+
+// Labels for status action buttons on ride cards
+export const STATUS_ACTION_LABELS: Partial<Record<RideStatus, { nextStatus: RideStatus; label: string }>> = {
+  confirmed: { nextStatus: 'en_route', label: 'Start En Route' },
+  en_route: { nextStatus: 'arrived', label: "I've Arrived" },
+  arrived: { nextStatus: 'in_progress', label: 'Passenger Picked Up' },
+  in_progress: { nextStatus: 'completed', label: 'Complete Ride' },
 }
 
 // Status display config
@@ -113,6 +136,7 @@ export const STATUS_CONFIG: Record<RideStatus, { label: string; color: string; b
   in_progress: { label: 'In Progress', color: 'text-green-200', bg: 'bg-green-600' },
   completed: { label: 'Completed', color: 'text-yellow-900', bg: 'bg-yellow-500' },
   cancelled: { label: 'Cancelled', color: 'text-red-200', bg: 'bg-red-600' },
+  no_show: { label: 'No Show', color: 'text-orange-200', bg: 'bg-orange-600' },
 }
 
 export const CONFIRMATION_CONFIG: Record<ConfirmationStatus, { label: string; color: string; bg: string }> = {
@@ -120,4 +144,13 @@ export const CONFIRMATION_CONFIG: Record<ConfirmationStatus, { label: string; co
   confirmed: { label: 'Accepted', color: 'text-green-200', bg: 'bg-green-600' },
   declined: { label: 'Declined', color: 'text-red-200', bg: 'bg-red-600' },
   unavailable: { label: 'Unavailable', color: 'text-gray-300', bg: 'bg-gray-600' },
+}
+
+export interface StatusLogEntry {
+  id: string
+  ride_id: string
+  status: string
+  changed_by: string | null
+  changed_by_name: string | null
+  timestamp: string
 }

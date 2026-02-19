@@ -5,14 +5,46 @@
 /* Mapbox GL CSS */
 @import 'mapbox-gl/dist/mapbox-gl.css';
 
-:root {
-  --gold: #d4af37;
-  --gold-light: #e5c66b;
-  --gold-dark: #b8962f;
-  --charcoal: #1a1a1a;
-  --charcoal-light: #2a2a2a;
-  --cream: #f5f2eb;
-  --cream-dark: #ebe5d9;
+@layer base {
+  :root {
+    /* Brand colors (kept for direct reference) */
+    --gold: #d4af37;
+    --gold-light: #e5c66b;
+    --gold-dark: #b8962f;
+    --charcoal: #1a1a1a;
+    --charcoal-light: #2a2a2a;
+    --cream: #f5f2eb;
+    --cream-dark: #ebe5d9;
+
+    /* shadcn/ui theme tokens — dark luxury */
+    --background: 0 0% 10%;
+    --foreground: 37 27% 94%;
+    --card: 0 0% 16.5%;
+    --card-foreground: 37 27% 94%;
+    --popover: 0 0% 16.5%;
+    --popover-foreground: 37 27% 94%;
+    --primary: 43 65% 52%;
+    --primary-foreground: 0 0% 10%;
+    --secondary: 0 0% 16.5%;
+    --secondary-foreground: 37 27% 94%;
+    --muted: 0 0% 16.5%;
+    --muted-foreground: 0 0% 53%;
+    --accent: 43 54% 65%;
+    --accent-foreground: 0 0% 10%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 86% 82%;
+    --border: 0 0% 23%;
+    --input: 0 0% 23%;
+    --ring: 43 65% 52%;
+    --radius: 0.5rem;
+
+    /* Chart colors */
+    --chart-1: 43 65% 52%;
+    --chart-2: 43 54% 65%;
+    --chart-3: 0 0% 53%;
+    --chart-4: 37 27% 94%;
+    --chart-5: 0 63% 31%;
+  }
 }
 
 * {
@@ -200,93 +232,12 @@ html, body, #__next {
   box-shadow: none;
 }
 
-.btn-secondary {
-  @apply py-3 px-4 font-medium transition-colors;
-  background: transparent;
-  color: var(--cream);
-  border: 1px solid var(--cream-dark);
-  border-radius: 8px;
-  touch-action: manipulation;
-}
-
-.btn-secondary:hover {
-  background: rgba(245, 242, 235, 0.1);
-  border-color: var(--gold);
-  color: var(--gold);
-}
-
-/* Input styling - Dark luxury theme */
-.input-field {
-  @apply w-full py-3 px-4 text-base;
-  background: var(--charcoal-light);
-  color: var(--cream);
-  border: 1px solid #3a3a3a;
-  border-radius: 8px;
-  font-size: 16px;
-}
-
-.input-field:focus {
-  outline: none;
-  border-color: var(--gold);
-  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.2);
-}
-
-.input-field::placeholder {
-  color: #6a6a6a;
-}
-
-/* Card styling - Dark theme */
-.location-card {
-  background: var(--charcoal-light);
-  border-radius: 12px;
-  padding: 16px;
-  border: 1px solid #3a3a3a;
-}
-
-.location-card-active {
-  border-color: var(--gold);
-  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.2);
-}
-
-/* Price display - Gold accent */
-.price-display {
-  font-family: 'Gilda Display', Georgia, serif;
-  font-size: 2.5rem;
-  font-weight: 400;
-  color: var(--gold);
-}
-
-.price-breakdown {
-  font-size: 0.875rem;
-  color: #888;
-}
-
-/* Typography helpers */
+/* Typography helper */
 .font-display {
   font-family: 'Gilda Display', Georgia, serif;
 }
 
-.text-gold {
-  color: var(--gold);
-}
-
-.text-cream {
-  color: var(--cream);
-}
-
-.border-gold {
-  border-color: var(--gold);
-}
-
-.bg-charcoal {
-  background-color: var(--charcoal);
-}
-
-.bg-charcoal-light {
-  background-color: var(--charcoal-light);
-}
-
-/* Selection indicator - refined */
+/* Selection indicator - refined (used by booking form) */
 .selection-indicator {
   background: var(--charcoal);
   border: 2px solid var(--gold);

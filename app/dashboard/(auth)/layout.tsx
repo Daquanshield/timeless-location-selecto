@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { createServerClient } from '@/lib/supabase'
+import InactivityGuard from '@/components/dashboard/InactivityGuard'
 
 export default async function AuthenticatedDashboardLayout({
   children,
@@ -38,5 +39,5 @@ export default async function AuthenticatedDashboardLayout({
     redirect('/dashboard/login')
   }
 
-  return <>{children}</>
+  return <InactivityGuard>{children}</InactivityGuard>
 }

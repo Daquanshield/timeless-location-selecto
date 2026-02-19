@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
 import { getSessionUser } from '@/lib/dashboard-auth'
 import { checkRateLimit, getClientIp } from '@/lib/security'
+import { triggerStatusNotification } from '@/lib/ghl-notifications'
 
 export async function PATCH(
   request: NextRequest,
@@ -29,7 +30,7 @@ export async function PATCH(
 
   const { data: ride } = await supabase
     .from('rides')
-    .select('id, driver_phone, confirmation_status, assignment_history')
+    .select('id, driver_phone, driver_name, confirmation_status, assignment_history, client_phone, client_name, client_contact_id, vehicle_type, pickup_datetime, pickup_address')
     .eq('id', params.id)
     .single()
 
@@ -70,6 +71,11 @@ export async function PATCH(
   if (error) {
     console.error('Failed to confirm ride:', error)
     return NextResponse.json({ error: 'Failed to update' }, { status: 500 })
+  }
+
+  // Notify client on confirmation
+  if (action === 'accept') {
+    triggerStatusNotification(ride, 'confirmed').catch(() => {})
   }
 
   return NextResponse.json({ success: true, confirmation_status: newConfirmation })

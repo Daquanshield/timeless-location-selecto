@@ -2,12 +2,15 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import NavBar from '@/components/dashboard/NavBar'
 import StatsOverview from '@/components/dashboard/StatsOverview'
 import RideFilters from '@/components/dashboard/RideFilters'
 import RideCard from '@/components/dashboard/RideCard'
 import EmptyState from '@/components/dashboard/EmptyState'
-import type { RideSummary, DashboardUser, DashboardStats } from '@/lib/dashboard-types'
+import CreateRideForm from '@/components/dashboard/CreateRideForm'
+import type { RideSummary, DashboardUser, DashboardStats, RideStatus } from '@/lib/dashboard-types'
 
 interface Driver {
   phone: string
@@ -25,6 +28,7 @@ export default function DispatcherDashboard() {
   const [filters, setFilters] = useState<Record<string, string | undefined>>({})
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
+  const [showCreateForm, setShowCreateForm] = useState(false)
 
   const fetchUser = useCallback(async () => {
     const res = await fetch('/api/dashboard/auth/me')
@@ -64,18 +68,17 @@ export default function DispatcherDashboard() {
   }, [page, filters])
 
   const fetchDrivers = useCallback(async () => {
-    // We'll fetch drivers from the rides data for now
-    // In a full implementation, this would be a dedicated API
-    const res = await fetch('/api/dashboard/rides?limit=50')
+    const res = await fetch('/api/dashboard/drivers')
     if (res.ok) {
       const data = await res.json()
-      const driverMap = new Map<string, string>()
-      for (const ride of data.rides) {
-        if (ride.driver_phone && ride.driver_name) {
-          driverMap.set(ride.driver_phone, ride.driver_name)
-        }
-      }
-      setDrivers(Array.from(driverMap.entries()).map(([phone, name]) => ({ phone, name })))
+      setDrivers(
+        (data.drivers || [])
+          .filter((d: { status: string }) => d.status === 'active')
+          .map((d: { phone: string; first_name: string; last_name: string }) => ({
+            phone: d.phone,
+            name: `${d.first_name} ${d.last_name}`,
+          }))
+      )
     }
   }, [])
 
@@ -117,6 +120,17 @@ export default function DispatcherDashboard() {
     }
   }
 
+  const handleStatusAdvance = async (id: string, nextStatus: RideStatus) => {
+    const res = await fetch(`/api/dashboard/rides/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: nextStatus }),
+    })
+    if (res.ok) {
+      await Promise.all([fetchStats(), fetchRides()])
+    }
+  }
+
   const handleFilterChange = (newFilters: Record<string, string | undefined>) => {
     setFilters(newFilters)
     setPage(1)
@@ -125,7 +139,7 @@ export default function DispatcherDashboard() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="spinner" style={{ width: 40, height: 40 }} />
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
       </div>
     )
   }
@@ -137,15 +151,37 @@ export default function DispatcherDashboard() {
         {/* Refresh indicator */}
         {refreshing && (
           <div className="flex justify-center mb-2">
-            <div className="spinner" style={{ width: 16, height: 16 }} />
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
           </div>
         )}
 
         {/* Stats */}
         {stats && <StatsOverview stats={stats} />}
 
-        {/* Filters */}
-        <RideFilters drivers={drivers} onFilterChange={handleFilterChange} />
+        {/* Filters + New Ride button */}
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex-1">
+            <RideFilters drivers={drivers} onFilterChange={handleFilterChange} />
+          </div>
+          <Button
+            onClick={() => setShowCreateForm(true)}
+            size="sm"
+          >
+            + New Ride
+          </Button>
+        </div>
+
+        {/* Create Ride Form */}
+        {showCreateForm && (
+          <CreateRideForm
+            onCancel={() => setShowCreateForm(false)}
+            onCreated={() => {
+              setShowCreateForm(false)
+              fetchStats()
+              fetchRides()
+            }}
+          />
+        )}
 
         {/* Rides list */}
         {rides.length > 0 ? (
@@ -156,8 +192,10 @@ export default function DispatcherDashboard() {
                 ride={ride}
                 basePath="/dashboard/dispatcher"
                 showDriver
+                userRole="dispatcher"
                 onAccept={(id) => handleConfirm(id, 'accept')}
                 onDecline={(id) => handleConfirm(id, 'decline')}
+                onStatusAdvance={handleStatusAdvance}
               />
             ))}
           </div>
@@ -171,23 +209,25 @@ export default function DispatcherDashboard() {
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-center gap-4 mt-6">
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               disabled={page <= 1}
               onClick={() => setPage(p => p - 1)}
-              className="btn-secondary py-2 px-4 text-sm disabled:opacity-30"
             >
               Previous
-            </button>
-            <span className="text-cream/50 text-sm">
+            </Button>
+            <span className="text-muted-foreground text-sm">
               Page {page} of {totalPages}
             </span>
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               disabled={page >= totalPages}
               onClick={() => setPage(p => p + 1)}
-              className="btn-secondary py-2 px-4 text-sm disabled:opacity-30"
             >
               Next
-            </button>
+            </Button>
           </div>
         )}
       </div>

@@ -36,6 +36,8 @@ export async function GET(request: NextRequest) {
     completedTodayResult,
     earningsResult,
     unconfirmedResult,
+    projectedResult,
+    paymentResult,
   ] = await Promise.all([
     // Rides today
     supabase
@@ -59,7 +61,7 @@ export async function GET(request: NextRequest) {
       .gte('pickup_datetime', todayStart.toISOString())
       .lte('pickup_datetime', todayEnd.toISOString()),
 
-    // Earnings today
+    // Earnings today (completed rides)
     supabase
       .from('rides')
       .select('total_amount')
@@ -73,6 +75,18 @@ export async function GET(request: NextRequest) {
       .select('id', { count: 'exact', head: true })
       .eq('confirmation_status', 'unconfirmed')
       .in('status', ['pending', 'confirmed']),
+
+    // Projected earnings (pending + confirmed rides total_amount)
+    supabase
+      .from('rides')
+      .select('total_amount')
+      .in('status', ['pending', 'confirmed', 'en_route', 'arrived', 'in_progress']),
+
+    // Payment breakdown (all non-cancelled rides)
+    supabase
+      .from('rides')
+      .select('payment_status')
+      .not('status', 'in', '("cancelled","no_show")'),
   ])
 
   const totalEarnings = (earningsResult.data || []).reduce(
@@ -80,11 +94,25 @@ export async function GET(request: NextRequest) {
     0
   )
 
+  const projectedEarnings = (projectedResult.data || []).reduce(
+    (sum, r) => sum + (Number(r.total_amount) || 0),
+    0
+  )
+
+  const paymentData = paymentResult.data || []
+  const paymentBreakdown = {
+    paid: paymentData.filter(r => r.payment_status === 'paid').length,
+    deposit: paymentData.filter(r => r.payment_status === 'deposit').length,
+    unpaid: paymentData.filter(r => !r.payment_status || r.payment_status === 'unpaid').length,
+  }
+
   return NextResponse.json({
     rides_today: todayResult.count || 0,
     rides_upcoming: upcomingResult.count || 0,
     rides_completed_today: completedTodayResult.count || 0,
     total_earnings_today: totalEarnings,
     unconfirmed_count: unconfirmedResult.count || 0,
+    projected_earnings: projectedEarnings,
+    payment_breakdown: paymentBreakdown,
   })
 }

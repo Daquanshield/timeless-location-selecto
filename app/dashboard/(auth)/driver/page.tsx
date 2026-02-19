@@ -2,10 +2,12 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import NavBar from '@/components/dashboard/NavBar'
 import RideCard from '@/components/dashboard/RideCard'
 import EmptyState from '@/components/dashboard/EmptyState'
-import type { RideSummary, DashboardUser } from '@/lib/dashboard-types'
+import type { RideSummary, DashboardUser, RideStatus } from '@/lib/dashboard-types'
 
 type TabKey = 'upcoming' | 'past'
 
@@ -70,6 +72,15 @@ export default function DriverDashboard() {
     if (res.ok) await fetchRides()
   }
 
+  const handleStatusAdvance = async (id: string, nextStatus: RideStatus) => {
+    const res = await fetch(`/api/dashboard/rides/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: nextStatus }),
+    })
+    if (res.ok) await fetchRides()
+  }
+
   // Split rides into sections
   const needsAction = rides.filter(r => r.confirmation_status === 'unconfirmed')
   const activeRides = rides.filter(r =>
@@ -84,7 +95,7 @@ export default function DriverDashboard() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="spinner" style={{ width: 40, height: 40 }} />
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
       </div>
     )
   }
@@ -96,42 +107,35 @@ export default function DriverDashboard() {
         {/* Refresh indicator */}
         {refreshing && (
           <div className="flex justify-center mb-2">
-            <div className="spinner" style={{ width: 16, height: 16 }} />
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
           </div>
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-4 p-1 rounded-lg" style={{ background: 'var(--charcoal-light)' }}>
-          {(['upcoming', 'past'] as TabKey[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 py-2 rounded-md text-sm font-medium transition-colors ${
-                tab === t
-                  ? 'text-charcoal'
-                  : 'text-cream/50 hover:text-cream/70'
-              }`}
-              style={tab === t ? { background: 'var(--gold)' } : {}}
-            >
-              {t === 'upcoming' ? 'Upcoming' : 'Past Rides'}
-            </button>
-          ))}
-        </div>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)} className="mb-4">
+          <TabsList className="w-full">
+            <TabsTrigger value="upcoming" className="flex-1">Upcoming</TabsTrigger>
+            <TabsTrigger value="past" className="flex-1">Past Rides</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         {tab === 'upcoming' ? (
           <>
             {/* Action Needed */}
             {needsAction.length > 0 && (
               <div className="mb-6">
-                <h2 className="text-gold font-display text-lg mb-3">Action Needed</h2>
+                <h2 className="text-primary font-display text-lg mb-3">Action Needed</h2>
                 <div className="space-y-3">
                   {needsAction.map(ride => (
                     <RideCard
                       key={ride.id}
                       ride={ride}
                       basePath="/dashboard/driver"
+                      hidePrice
+                      userRole="driver"
                       onAccept={(id) => handleConfirm(id, 'accept')}
                       onDecline={(id) => handleConfirm(id, 'decline')}
+                      onStatusAdvance={handleStatusAdvance}
                     />
                   ))}
                 </div>
@@ -141,10 +145,10 @@ export default function DriverDashboard() {
             {/* Active Rides */}
             {activeRides.length > 0 && (
               <div className="mb-6">
-                <h2 className="text-cream/60 font-medium text-sm uppercase tracking-wider mb-3">Active Rides</h2>
+                <h2 className="text-muted-foreground font-medium text-sm uppercase tracking-wider mb-3">Active Rides</h2>
                 <div className="space-y-3">
                   {activeRides.map(ride => (
-                    <RideCard key={ride.id} ride={ride} basePath="/dashboard/driver" />
+                    <RideCard key={ride.id} ride={ride} basePath="/dashboard/driver" hidePrice userRole="driver" onStatusAdvance={handleStatusAdvance} />
                   ))}
                 </div>
               </div>
@@ -153,10 +157,10 @@ export default function DriverDashboard() {
             {/* Other upcoming */}
             {otherRides.length > 0 && (
               <div className="mb-6">
-                <h2 className="text-cream/60 font-medium text-sm uppercase tracking-wider mb-3">Upcoming</h2>
+                <h2 className="text-muted-foreground font-medium text-sm uppercase tracking-wider mb-3">Upcoming</h2>
                 <div className="space-y-3">
                   {otherRides.map(ride => (
-                    <RideCard key={ride.id} ride={ride} basePath="/dashboard/driver" />
+                    <RideCard key={ride.id} ride={ride} basePath="/dashboard/driver" hidePrice userRole="driver" onStatusAdvance={handleStatusAdvance} />
                   ))}
                 </div>
               </div>
@@ -171,7 +175,7 @@ export default function DriverDashboard() {
             {rides.length > 0 ? (
               <div className="space-y-3">
                 {rides.map(ride => (
-                  <RideCard key={ride.id} ride={ride} basePath="/dashboard/driver" />
+                  <RideCard key={ride.id} ride={ride} basePath="/dashboard/driver" hidePrice userRole="driver" />
                 ))}
               </div>
             ) : (
