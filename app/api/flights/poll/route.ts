@@ -5,8 +5,25 @@ import {
   getDTWWeather,
   shouldStartPolling,
   generateFlightNotificationSMS,
+  type ParsedFlightStatus,
 } from '@/lib/flight-tracking'
 import { sendSMS } from '@/lib/sms'
+
+/**
+ * Generate driver-specific flight status SMS
+ */
+function generateDriverFlightSMS(flight: ParsedFlightStatus, driverName: string): string | null {
+  if (flight.status === 'cancelled') {
+    return `Elena Dispatch: ${driverName}, flight ${flight.flight_number} has been CANCELLED. Please standby — we will update you on whether the ride is still needed.`
+  }
+  if (flight.delay_minutes >= 30) {
+    return `Elena Dispatch: ${driverName}, flight ${flight.flight_number} is delayed ~${flight.delay_minutes} min. Adjust your arrival time accordingly. We'll keep you updated.`
+  }
+  if (flight.status === 'landed') {
+    return `Elena Dispatch: ${driverName}, flight ${flight.flight_number} has landed! ${flight.dtw_pickup_instructions || 'Please proceed to the terminal.'} ${flight.baggage_claim ? `Baggage: ${flight.baggage_claim}` : ''}`
+  }
+  return null
+}
 
 const FLIGHTAWARE_API_KEY = process.env.FLIGHTAWARE_API_KEY!
 const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY!
@@ -109,17 +126,60 @@ export async function POST(request: NextRequest) {
         .update(updateData)
         .eq('id', tracked.id)
 
-      // Send notification if needed
+      // Send notification if needed — to client, driver, and dispatcher (Leah)
       if (shouldNotify) {
-        const smsText = generateFlightNotificationSMS(status, weather)
-        if (smsText.trim()) {
+        const clientSMS = generateFlightNotificationSMS(status, weather)
+        if (clientSMS.trim()) {
+          // 1. Notify client
           const sent = await sendSMS({
             contactId: tracked.contact_id,
             phone: tracked.contact_phone,
-            message: smsText,
+            message: clientSMS,
             from: 'sofia',
           })
           if (sent) notificationCount++
+
+          // 2. Notify driver (if ride is linked)
+          if (tracked.ride_id) {
+            const { data: ride } = await supabase
+              .from('rides')
+              .select('driver_phone, driver_name, driver_contact_id')
+              .eq('id', tracked.ride_id)
+              .single()
+
+            if (!ride) {
+              // Try location_selections if no rides table match
+              const { data: sel } = await supabase
+                .from('location_selections')
+                .select('id')
+                .eq('id', tracked.ride_id)
+                .single()
+              // If ride record exists but no driver assigned yet, skip driver notify
+              if (sel) console.log(`Flight ${tracked.flight_number}: ride found but no driver assigned yet`)
+            }
+
+            if (ride?.driver_phone) {
+              const driverMsg = generateDriverFlightSMS(status, ride.driver_name || 'Driver')
+              if (driverMsg) {
+                await sendSMS({
+                  phone: ride.driver_phone,
+                  ...(ride.driver_contact_id ? { contactId: ride.driver_contact_id } : {}),
+                  message: driverMsg,
+                  from: 'elena',
+                })
+              }
+            }
+          }
+
+          // 3. Notify dispatcher Leah on cancellations or major delays (30+ min)
+          if (status.status === 'cancelled' || status.delay_minutes >= 30) {
+            const leahMsg = `🚨 FLIGHT ALERT: ${tracked.flight_number} ${status.status === 'cancelled' ? 'CANCELLED' : `delayed ${status.delay_minutes}min`}.\n\nClient: ${tracked.contact_phone}\n${tracked.ride_id ? `Ride ID: ${tracked.ride_id}` : 'No ride linked'}\n\nPlease check if ride needs rescheduling.`
+            await sendSMS({
+              phone: '+12488044747',
+              message: leahMsg,
+              from: 'elena',
+            })
+          }
         }
       }
 

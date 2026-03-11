@@ -130,6 +130,7 @@ export interface SubmitSelectionRequest {
   passengerCount?: number
   scheduledDate?: string
   specialInstructions?: string
+  flightNumber?: string
   estimatedHours?: number
   dayRateDuration?: DayRateDuration
   waitTimeTier?: WaitTimeTier

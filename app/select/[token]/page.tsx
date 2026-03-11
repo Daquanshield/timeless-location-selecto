@@ -100,6 +100,7 @@ export default function SelectLocationPage() {
   const [isLoadingSlots, setIsLoadingSlots] = useState(false)
   const [passengerCount, setPassengerCount] = useState<number>(1)
   const [specialInstructions, setSpecialInstructions] = useState<string>('')
+  const [flightNumber, setFlightNumber] = useState<string>('')
 
   // User location for biasing search results
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
@@ -624,6 +625,7 @@ export default function SelectLocationPage() {
           passengerCount: Math.min(passengerCount, maxPassengers),
           scheduledDate: scheduledDateTime,
           specialInstructions: specialInstructions.trim() || undefined,
+          flightNumber: flightNumber.trim() || undefined,
           estimatedHours: serviceType === 'HOURLY' ? estimatedHours : undefined,
           dayRateDuration: serviceType === 'DAY_RATE' ? dayRateDuration : undefined,
           waitTimeTier: serviceType === 'LONG_DISTANCE' ? waitTimeTier : undefined,
@@ -974,6 +976,24 @@ export default function SelectLocationPage() {
               </p>
             </div>
 
+            {/* Flight Number (optional - for real-time tracking) */}
+            {(serviceType === 'AIRPORT' || serviceType === 'MULTI_STOP') && (
+              <div>
+                <label className="block text-sm font-medium text-cream-100 mb-1.5">
+                  Flight Number <span className="text-charcoal-500">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={flightNumber}
+                  onChange={(e) => setFlightNumber(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                  placeholder="e.g. DL1234, AA100, UA567"
+                  maxLength={10}
+                  className="w-full px-3 py-3 bg-charcoal-800 border-2 border-charcoal-700 rounded-lg text-cream-100 placeholder-charcoal-500 focus:border-gold-400 focus:outline-none transition-colors"
+                />
+                <p className="text-xs text-charcoal-500 mt-1">We&apos;ll track your flight and adjust pickup if delayed or cancelled</p>
+              </div>
+            )}
+
             {/* Special Instructions */}
             <div>
               <label className="block text-sm font-medium text-cream-100 mb-1.5">
@@ -982,7 +1002,7 @@ export default function SelectLocationPage() {
               <textarea
                 value={specialInstructions}
                 onChange={(e) => setSpecialInstructions(e.target.value)}
-                placeholder="Airport terminal, gate number, building entrance, flight number, etc."
+                placeholder="Airport terminal, gate number, building entrance, etc."
                 rows={2}
                 maxLength={500}
                 className="w-full px-3 py-3 bg-charcoal-800 border-2 border-charcoal-700 rounded-lg text-cream-100 placeholder-charcoal-500 focus:border-gold-400 focus:outline-none transition-colors resize-none"

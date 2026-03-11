@@ -106,6 +106,7 @@ export async function POST(request: NextRequest) {
       longDistanceDestination,
       tripDirection,
       passengerCount, scheduledDate, specialInstructions,
+      flightNumber,
       // Deprecated fields (backward compat)
       vehicleType,
       rideType
@@ -167,6 +168,7 @@ export async function POST(request: NextRequest) {
       .filter(s => s.lat !== 0 && s.lng !== 0)
 
     const sanitizedInstructions = sanitizeString(specialInstructions, 500)
+    const sanitizedFlightNumber = flightNumber ? sanitizeString(flightNumber.replace(/[^A-Z0-9]/gi, '').toUpperCase(), 10) : null
 
     // Resolve vehicle class (support old vehicleType field)
     const validVehicleClasses: VehicleClass[] = ['EXECUTIVE_SUV', 'PREMIER_SUV']
@@ -278,6 +280,7 @@ export async function POST(request: NextRequest) {
         passenger_count: safePassengerCount,
         scheduled_date: scheduledDate || null,
         special_instructions: sanitizedInstructions || null,
+        flight_number: sanitizedFlightNumber || null,
         status: 'selected',
         completed_at: new Date().toISOString(),
         user_agent: request.headers.get('user-agent')?.slice(0, 500),
@@ -323,6 +326,7 @@ export async function POST(request: NextRequest) {
           ...(safeLongDistanceDest ? [`Destination: ${safeLongDistanceDest}`] : []),
           ...(safeTripDirection !== 'one_way' && safeServiceType === 'LONG_DISTANCE' ? [`Direction: Round Trip`] : []),
           ...(safeWaitTimeTier !== 'NONE' && safeServiceType === 'LONG_DISTANCE' ? [`Wait Time: ${safeWaitTimeTier}`] : []),
+          ...(sanitizedFlightNumber ? [`Flight: ${sanitizedFlightNumber}`] : []),
           ...(sanitizedInstructions ? [`\nSpecial Instructions: ${sanitizedInstructions}`] : []),
           '',
           `[DROPOFF_COORDS]${sanitizedDropoff.lat},${sanitizedDropoff.lng}[/DROPOFF_COORDS]`,
@@ -431,6 +435,7 @@ export async function POST(request: NextRequest) {
         trip_direction: safeTripDirection,
         scheduled_date: scheduledDate || null,
         special_instructions: sanitizedInstructions || null,
+        flight_number: sanitizedFlightNumber || null,
         ghl_appointment_id: ghlAppointmentId,
         timestamp: new Date().toISOString()
       })
@@ -450,6 +455,32 @@ export async function POST(request: NextRequest) {
       }
     } else {
       console.error('Webhook not sent: N8N_WEBHOOK_URL or N8N_WEBHOOK_SECRET not configured')
+    }
+
+    // Auto-register flight tracking if flight number provided
+    if (sanitizedFlightNumber && session.contact_id && scheduledDate) {
+      try {
+        const flightDate = new Date(scheduledDate).toISOString().split('T')[0]
+        const baseUrl = process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : process.env.NEXT_PUBLIC_VERCEL_URL
+            ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+            : 'http://localhost:3000'
+        await fetch(`${baseUrl}/api/flights/track`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contact_id: session.contact_id,
+            contact_phone: session.contact_phone,
+            flight_number: sanitizedFlightNumber,
+            flight_date: flightDate,
+            ride_id: session.id,
+          })
+        })
+        console.log(`Flight tracking registered for ${sanitizedFlightNumber}`)
+      } catch (err) {
+        console.error('Failed to register flight tracking:', err)
+      }
     }
 
     return NextResponse.json<SubmitSelectionResponse>({
