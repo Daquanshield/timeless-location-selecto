@@ -88,7 +88,7 @@ function generateTransportationNote(venues: Venue[], fromZone?: SofiaZone): stri
     return 'We can arrange luxury transportation to any destination in the metro Detroit area. Just let us know!'
   }
 
-  const zones = [...new Set(venues.map(v => v.zone))]
+  const zones = Array.from(new Set(venues.map(v => v.zone)))
 
   if (zones.length === 1 && zones[0] === 'DOWNTOWN') {
     return 'All recommendations are in downtown Detroit. We can drop you off and pick you up whenever you\'re ready — no need to worry about parking or driving.'
