@@ -155,6 +155,210 @@ export interface CustomerMemory {
 }
 
 // ============================================================
+// SOFIA v6.0 — Invoicing Module
+// ============================================================
+
+export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled'
+
+export interface Invoice {
+  id: string
+  invoice_number: string // TR-YYYY-NNNN
+  ride_id: string | null
+  contact_id: string
+  contact_name: string
+  contact_email: string | null
+  contact_phone: string
+  service_type: ServiceType
+  vehicle_class: VehicleClass
+  pickup_address: string
+  dropoff_address: string
+  trip_date: string
+  fare_cents: number
+  gratuity_cents: number
+  extras_cents: number
+  total_cents: number
+  price_breakdown: PriceBreakdown
+  notes: string | null
+  status: InvoiceStatus
+  sent_at: string | null
+  paid_at: string | null
+  created_at: string
+}
+
+export interface CreateInvoiceRequest {
+  ride_id?: string
+  contact_id: string
+  contact_name: string
+  contact_email?: string
+  contact_phone: string
+  service_type: ServiceType
+  vehicle_class: VehicleClass
+  pickup_address: string
+  dropoff_address: string
+  trip_date: string
+  fare_cents: number
+  gratuity_cents?: number
+  extras_cents?: number
+  notes?: string
+  price_breakdown: PriceBreakdown
+}
+
+export interface InvoiceResponse {
+  success: boolean
+  invoice?: Invoice
+  message?: string
+}
+
+// ============================================================
+// SOFIA v6.0 — Flight Tracking Module
+// ============================================================
+
+export type FlightTrackingStatus = 'scheduled' | 'tracking' | 'landed' | 'cancelled' | 'completed'
+
+export interface TrackedFlight {
+  id: string
+  contact_id: string
+  contact_phone: string
+  ride_id: string | null
+  flight_number: string // e.g. "DL1234"
+  airline: string
+  departure_airport: string
+  arrival_airport: string
+  scheduled_departure: string
+  scheduled_arrival: string
+  actual_departure: string | null
+  actual_arrival: string | null
+  terminal: string | null
+  gate: string | null
+  baggage_claim: string | null
+  delay_minutes: number
+  status: FlightTrackingStatus
+  dtw_pickup_instructions: string | null
+  weather_conditions: string | null
+  last_polled_at: string | null
+  polling_started_at: string | null
+  created_at: string
+}
+
+export interface TrackFlightRequest {
+  contact_id: string
+  contact_phone: string
+  ride_id?: string
+  flight_number: string
+  flight_date: string // YYYY-MM-DD
+}
+
+export interface FlightStatusResponse {
+  success: boolean
+  flight?: TrackedFlight
+  message?: string
+}
+
+// ============================================================
+// SOFIA v6.0 — Local Concierge Module
+// ============================================================
+
+export type VenueCategory =
+  | 'fine_dining'
+  | 'upscale_casual'
+  | 'steakhouse'
+  | 'cocktail_bar'
+  | 'rooftop'
+  | 'live_music'
+  | 'theater'
+  | 'sports'
+  | 'spa'
+  | 'hotel'
+
+export type VenuePriceLevel = '$$$' | '$$$$'
+
+export interface Venue {
+  id: string
+  name: string
+  category: VenueCategory
+  price_level: VenuePriceLevel
+  address: string
+  lat: number
+  lng: number
+  zone: SofiaZone
+  phone: string | null
+  website: string | null
+  description: string
+  dress_code: string | null
+  reservation_required: boolean
+  best_for: string[] // e.g. ["date night", "business dinner", "celebration"]
+  hours: string | null
+  active: boolean
+  created_at: string
+}
+
+export interface ConciergeRecommendRequest {
+  occasion?: string
+  category?: VenueCategory
+  zone?: SofiaZone
+  party_size?: number
+  limit?: number // max recommendations (default 3)
+}
+
+export interface ConciergeRecommendResponse {
+  success: boolean
+  venues: Venue[]
+  transportation_note: string
+  message?: string
+}
+
+// ============================================================
+// SOFIA v6.0 — Personal EA Module
+// ============================================================
+
+export type VIPTier = 'STANDARD' | 'PREFERRED' | 'VIP'
+
+export interface ClientProfile {
+  id: string
+  contact_id: string
+  contact_name: string
+  contact_phone: string
+  contact_email: string | null
+  vip_tier: VIPTier
+  preferred_vehicle: VehicleClass | null
+  preferred_driver: string | null
+  usual_pickup: string | null
+  usual_dropoff: string | null
+  dietary_restrictions: string | null
+  preferred_restaurants: string[]
+  communication_preference: 'sms' | 'email' | 'both'
+  special_dates: Record<string, string> // e.g. {"anniversary": "2026-06-15", "birthday": "1985-03-22"}
+  notes: string | null
+  total_rides: number
+  total_spent_cents: number
+  last_ride_date: string | null
+  last_checkin_date: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface UpdateClientProfileRequest {
+  contact_name?: string
+  contact_email?: string
+  vip_tier?: VIPTier
+  preferred_vehicle?: VehicleClass
+  preferred_driver?: string
+  usual_pickup?: string
+  usual_dropoff?: string
+  dietary_restrictions?: string
+  preferred_restaurants?: string[]
+  communication_preference?: 'sms' | 'email' | 'both'
+  special_dates?: Record<string, string>
+  notes?: string
+}
+
+export interface ClientProfileResponse {
+  success: boolean
+  profile?: ClientProfile
+  message?: string
+}
+
+// ============================================================
 // DEPRECATED — kept for backward compatibility during migration
 // ============================================================
 
