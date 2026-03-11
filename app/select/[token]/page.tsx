@@ -1057,7 +1057,7 @@ export default function SelectLocationPage() {
             {/* Submit button */}
             <button
               onClick={handleSubmit}
-              disabled={!pickup || !dropoff || !pricing || !selectedSlot || isSubmitting}
+              disabled={!pickup || !dropoff || !pricing || pricing.total <= 0 || !selectedSlot || isSubmitting}
               className="btn-primary w-full flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
