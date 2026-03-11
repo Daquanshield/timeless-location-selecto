@@ -976,11 +976,11 @@ export default function SelectLocationPage() {
               </p>
             </div>
 
-            {/* Flight Number (optional - for real-time tracking) */}
+            {/* Flight Number (required for airport rides) */}
             {(serviceType === 'AIRPORT' || serviceType === 'MULTI_STOP') && (
               <div>
                 <label className="block text-sm font-medium text-cream-100 mb-1.5">
-                  Flight Number <span className="text-charcoal-500">(optional)</span>
+                  Flight Number <span className="text-red-400">*</span>
                 </label>
                 <input
                   type="text"
@@ -988,9 +988,11 @@ export default function SelectLocationPage() {
                   onChange={(e) => setFlightNumber(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
                   placeholder="e.g. DL1234, AA100, UA567"
                   maxLength={10}
-                  className="w-full px-3 py-3 bg-charcoal-800 border-2 border-charcoal-700 rounded-lg text-cream-100 placeholder-charcoal-500 focus:border-gold-400 focus:outline-none transition-colors"
+                  className={`w-full px-3 py-3 bg-charcoal-800 border-2 rounded-lg text-cream-100 placeholder-charcoal-500 focus:border-gold-400 focus:outline-none transition-colors ${
+                    !flightNumber && serviceType === 'AIRPORT' ? 'border-red-500/50' : 'border-charcoal-700'
+                  }`}
                 />
-                <p className="text-xs text-charcoal-500 mt-1">We&apos;ll track your flight and adjust pickup if delayed or cancelled</p>
+                <p className="text-xs text-charcoal-500 mt-1">Required for airport rides. We&apos;ll track your flight and adjust pickup if delayed.</p>
               </div>
             )}
 
@@ -1057,7 +1059,7 @@ export default function SelectLocationPage() {
             {/* Submit button */}
             <button
               onClick={handleSubmit}
-              disabled={!pickup || !dropoff || !pricing || pricing.total <= 0 || !selectedSlot || isSubmitting}
+              disabled={!pickup || !dropoff || !pricing || pricing.total <= 0 || !selectedSlot || isSubmitting || ((serviceType === 'AIRPORT' || serviceType === 'MULTI_STOP') && !flightNumber.trim())}
               className="btn-primary w-full flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
