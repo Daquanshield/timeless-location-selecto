@@ -240,7 +240,7 @@ export default function PriceEstimate({
       )}
 
       {/* Route Info & Price */}
-      {(route || pricing || isCalculating) && (
+      {(route || (pricing && pricing.total > 0) || isCalculating) && (
         <div className="bg-charcoal-800 rounded-lg border border-charcoal-700 p-4 mt-4">
           {isCalculating ? (
             <div className="flex items-center justify-center py-4">

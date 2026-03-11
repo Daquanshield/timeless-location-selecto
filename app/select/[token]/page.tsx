@@ -762,7 +762,7 @@ export default function SelectLocationPage() {
                   </span>
                 </div>
               </div>
-              {pricing && (
+              {pricing && pricing.total > 0 && (
                 <div className="text-right flex-shrink-0">
                   <p className="text-lg font-display text-gold-400">${pricing.total}</p>
                 </div>
