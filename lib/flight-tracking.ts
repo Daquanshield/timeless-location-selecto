@@ -5,18 +5,100 @@
 
 const FLIGHTAWARE_API_URL = 'https://aeroapi.flightaware.com/aeroapi'
 
-// DTW Terminal mapping
-const DTW_TERMINAL_MAP: Record<string, { terminal: string; door: string; instructions: string }> = {
+// DTW Terminal mapping — complete airline-to-terminal reference
+// McNamara Terminal: Delta + SkyTeam partners
+// Evans Terminal (formerly North Terminal, renamed April 2022): All other carriers
+// IMPORTANT: Delta international arrivals use a SEPARATE international arrivals zone within McNamara
+export const DTW_TERMINAL_MAP: Record<string, { terminal: string; door: string; instructions: string }> = {
+  // === McNamara Terminal — SkyTeam Alliance Hub ===
   DL: {
     terminal: 'McNamara Terminal',
     door: 'Door 6',
     instructions: 'McNamara Terminal, Door 6 (Ground Transportation level). Your driver will be waiting at the curb.',
   },
-  DEFAULT: {
-    terminal: 'North Terminal',
-    door: 'Door 4',
-    instructions: 'North Terminal, Door 4 (Ground Transportation level). Your driver will be waiting at the curb.',
+  OO: { // SkyWest (Delta Connection)
+    terminal: 'McNamara Terminal',
+    door: 'Door 6',
+    instructions: 'McNamara Terminal, Door 6 (Ground Transportation level). Your driver will be waiting at the curb.',
   },
+  G7: { // GoJet (Delta Connection)
+    terminal: 'McNamara Terminal',
+    door: 'Door 6',
+    instructions: 'McNamara Terminal, Door 6 (Ground Transportation level). Your driver will be waiting at the curb.',
+  },
+  AM: { // Aeromexico
+    terminal: 'McNamara Terminal',
+    door: 'Door 6',
+    instructions: 'McNamara Terminal, Door 6 (Ground Transportation level). Your driver will be waiting at the curb.',
+  },
+  AF: { // Air France
+    terminal: 'McNamara Terminal',
+    door: 'Door 6',
+    instructions: 'McNamara Terminal, Door 6 (Ground Transportation level). Your driver will be waiting at the curb.',
+  },
+  WS: { // WestJet
+    terminal: 'McNamara Terminal',
+    door: 'Door 6',
+    instructions: 'McNamara Terminal, Door 6 (Ground Transportation level). Your driver will be waiting at the curb.',
+  },
+  KL: { // KLM (codeshare via Delta)
+    terminal: 'McNamara Terminal',
+    door: 'Door 6',
+    instructions: 'McNamara Terminal, Door 6 (Ground Transportation level). Your driver will be waiting at the curb.',
+  },
+  // === Evans Terminal (formerly North Terminal) — All Non-SkyTeam ===
+  DEFAULT: {
+    terminal: 'Evans Terminal',
+    door: 'Door 4',
+    instructions: 'Evans Terminal, Door 4 (Ground Transportation level). Your driver will be waiting at the curb.',
+  },
+}
+
+// Airlines known to operate from Evans Terminal (for dropdown display)
+export const DTW_AIRLINES = [
+  // McNamara Terminal
+  { code: 'DL', name: 'Delta Air Lines', terminal: 'McNamara Terminal' },
+  { code: 'OO', name: 'Delta Connection (SkyWest)', terminal: 'McNamara Terminal' },
+  { code: 'G7', name: 'Delta Connection (GoJet)', terminal: 'McNamara Terminal' },
+  { code: 'AM', name: 'Aeromexico', terminal: 'McNamara Terminal' },
+  { code: 'AF', name: 'Air France', terminal: 'McNamara Terminal' },
+  { code: 'WS', name: 'WestJet', terminal: 'McNamara Terminal' },
+  { code: 'KL', name: 'KLM', terminal: 'McNamara Terminal' },
+  // Evans Terminal
+  { code: 'AA', name: 'American Airlines', terminal: 'Evans Terminal' },
+  { code: 'MQ', name: 'American Eagle', terminal: 'Evans Terminal' },
+  { code: 'UA', name: 'United Airlines', terminal: 'Evans Terminal' },
+  { code: 'YX', name: 'United Express', terminal: 'Evans Terminal' },
+  { code: 'WN', name: 'Southwest Airlines', terminal: 'Evans Terminal' },
+  { code: 'NK', name: 'Spirit Airlines', terminal: 'Evans Terminal' },
+  { code: 'B6', name: 'JetBlue Airways', terminal: 'Evans Terminal' },
+  { code: 'AS', name: 'Alaska Airlines', terminal: 'Evans Terminal' },
+  { code: 'F9', name: 'Frontier Airlines', terminal: 'Evans Terminal' },
+  { code: 'XP', name: 'Avelo Airlines', terminal: 'Evans Terminal' },
+  { code: 'LH', name: 'Lufthansa', terminal: 'Evans Terminal' },
+  { code: 'AC', name: 'Air Canada', terminal: 'Evans Terminal' },
+  { code: 'RJ', name: 'Royal Jordanian', terminal: 'Evans Terminal' },
+  { code: 'TK', name: 'Turkish Airlines', terminal: 'Evans Terminal' },
+  { code: 'FI', name: 'Icelandair', terminal: 'Evans Terminal' },
+  { code: 'SY', name: 'Sun Country Airlines', terminal: 'Evans Terminal' },
+] as const
+
+// International airline codes — flights from these airlines are flagged as INTERNATIONAL ARRIVAL
+export const INTERNATIONAL_AIRLINE_CODES = new Set([
+  'AM', 'AF', 'KL', 'WS', 'LH', 'AC', 'RJ', 'TK', 'FI',
+])
+
+// Resolve terminal from airline code (extracted from flight number)
+export function resolveTerminal(airlineCode: string): { terminal: string; door: string; instructions: string } {
+  return DTW_TERMINAL_MAP[airlineCode] || DTW_TERMINAL_MAP['DEFAULT']
+}
+
+// Check if a flight is international based on airline code or origin airport
+export function isInternationalFlight(airlineCode: string, originAirport?: string): boolean {
+  if (INTERNATIONAL_AIRLINE_CODES.has(airlineCode)) return true
+  // If origin airport code doesn't start with 'K' (US ICAO prefix), it's international
+  if (originAirport && !originAirport.startsWith('K') && originAirport.length === 4) return true
+  return false
 }
 
 export interface FlightAwareResponse {

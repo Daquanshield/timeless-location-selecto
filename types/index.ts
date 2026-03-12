@@ -131,6 +131,9 @@ export interface SubmitSelectionRequest {
   scheduledDate?: string
   specialInstructions?: string
   flightNumber?: string
+  departureAirline?: string
+  airportDirection?: 'arrival' | 'departure' | ''
+  terminal?: string
   estimatedHours?: number
   dayRateDuration?: DayRateDuration
   waitTimeTier?: WaitTimeTier

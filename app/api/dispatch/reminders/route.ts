@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
+import { resolveTerminal, isInternationalFlight } from '@/lib/flight-tracking'
 
 // Called by n8n every 10 minutes to send driver reminders
 // Evening-before (6-9 PM night before), 1-hour before, 30-min before
@@ -15,11 +16,21 @@ export async function POST(request: NextRequest) {
   const results: Array<{ ride_id: string; trip_id: string; reminder_type: string; driver_name: string; sent: boolean }> = []
 
   // Get all confirmed/pending rides with drivers assigned that aren't completed/cancelled
-  const { data: rides } = await supabase
+  let { data: rides } = await supabase
     .from('rides')
-    .select('id, trip_id, status, pickup_datetime, driver_name, driver_phone, driver_contact_id, client_name, pickup_address, dropoff_address, vehicle_type, service_type, reminder_evening_sent, reminder_1hr_sent, reminder_30min_sent')
+    .select('id, trip_id, status, pickup_datetime, driver_name, driver_phone, driver_contact_id, client_name, pickup_address, dropoff_address, vehicle_type, service_type, passenger_count, flight_number, special_instructions, departure_airline, airport_direction, terminal, reminder_evening_sent, reminder_1hr_sent, reminder_30min_sent')
     .in('status', ['pending', 'confirmed'])
     .not('driver_phone', 'is', null)
+
+  // Fallback if new columns don't exist yet (pre-migration)
+  if (!rides) {
+    const fallback = await supabase
+      .from('rides')
+      .select('id, trip_id, status, pickup_datetime, driver_name, driver_phone, driver_contact_id, client_name, pickup_address, dropoff_address, vehicle_type, service_type, passenger_count, flight_number, special_instructions, reminder_evening_sent, reminder_1hr_sent, reminder_30min_sent')
+      .in('status', ['pending', 'confirmed'])
+      .not('driver_phone', 'is', null)
+    rides = fallback.data as any
+  }
 
   if (!rides || rides.length === 0) {
     return NextResponse.json({ checked: 0, reminders_sent: 0, results: [] })
@@ -85,12 +96,42 @@ async function sendDriverReminder(
     hour12: true
   })
 
+  // Calculate "leave by" time: pickup - 40 min (30 min drive + 10 min early buffer)
+  const leaveByTime = new Date(pickupTime.getTime() - 40 * 60 * 1000)
+  const leaveByStr = leaveByTime.toLocaleTimeString('en-US', {
+    timeZone: 'America/Detroit',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  })
+
+  const clientFirst = ride.client_name?.split(' ')[0] || 'Guest'
+
+  // Build flight/terminal info block
+  let flightInfo = ''
+  const airlineCode = ride.flight_number?.match(/^([A-Z]{2})/)?.[1] || ride.departure_airline || ''
+  if (ride.flight_number) {
+    flightInfo += `\nFlight: ${ride.flight_number}`
+  }
+  const terminalName = ride.terminal || (airlineCode ? resolveTerminal(airlineCode).terminal : '')
+  if (terminalName) {
+    const doorInfo = airlineCode ? resolveTerminal(airlineCode).door : ''
+    flightInfo += `\nTerminal: ${terminalName}${doorInfo ? ` (${doorInfo})` : ''}`
+  }
+  const isIntl = airlineCode ? isInternationalFlight(airlineCode) : false
+  if (isIntl) {
+    flightInfo = `\nINTERNATIONAL ARRIVAL PICKUP` + flightInfo
+  }
+
+  // Build special instructions line
+  const instrLine = ride.special_instructions ? `\nNotes: ${ride.special_instructions}` : ''
+
   const messages: Record<string, string> = {
-    evening_before: `🚗 Reminder: You have a ride tomorrow.\n\n${ride.trip_id}\n📍 Pickup: ${ride.pickup_address}\n📍 Dropoff: ${ride.dropoff_address}\n🕐 ${timeStr}\n👤 ${ride.client_name?.split(' ')[0] || 'Guest'}\n🚘 ${ride.vehicle_type || 'SUV'}\n\nPlease confirm you're available by replying YES.`,
+    evening_before: `REMINDER: Ride tomorrow\n\nPickup: ${ride.pickup_address}\nhttps://maps.google.com/?q=${encodeURIComponent(ride.pickup_address)}\n\nDropoff: ${ride.dropoff_address}\nhttps://maps.google.com/?q=${encodeURIComponent(ride.dropoff_address)}\n\nTime: ${timeStr}\nLeave by: ${leaveByStr}\nClient: ${clientFirst}\nVehicle: ${ride.vehicle_type || 'SUV'}\nPassengers: ${ride.passenger_count || 1}${flightInfo}${instrLine}\n\nReply YES to confirm you are available.`,
 
-    '1_hour': `⏰ 1 HOUR until pickup.\n\n${ride.trip_id}\n📍 ${ride.pickup_address}\n🕐 ${timeStr}\n👤 ${ride.client_name?.split(' ')[0] || 'Guest'}\n\nPlease start heading to the pickup location.`,
+    '1_hour': `1 HOUR until pickup\n\nPickup: ${ride.pickup_address}\nhttps://maps.google.com/?q=${encodeURIComponent(ride.pickup_address)}\n\nTime: ${timeStr}\nLeave by: ${leaveByStr}\nClient: ${clientFirst}\nPassengers: ${ride.passenger_count || 1}${flightInfo}${instrLine}\n\nHead to the pickup location now.`,
 
-    '30_min': `🔴 30 MINUTES until pickup!\n\n${ride.trip_id}\n📍 ${ride.pickup_address}\n🕐 ${timeStr}\n\nYou should be en route now. Update your status when you arrive.`
+    '30_min': `30 MIN until pickup\n\nPickup: ${ride.pickup_address}\nhttps://maps.google.com/?q=${encodeURIComponent(ride.pickup_address)}\n\nTime: ${timeStr}\nClient: ${clientFirst}${flightInfo}\n\nYou should be en route. Reply ARRIVED when at pickup.`
   }
 
   const message = messages[reminderType]
@@ -107,6 +148,7 @@ async function sendDriverReminder(
       },
       body: JSON.stringify({
         type: 'SMS',
+        fromNumber: '+12489403262',
         contactId: ride.driver_contact_id,
         message
       })

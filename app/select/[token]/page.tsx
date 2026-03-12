@@ -24,6 +24,7 @@ import PriceEstimate from '@/components/PriceEstimate'
 import { geocodeAddress } from '@/lib/mapbox'
 import { getVehicleCapacity } from '@/lib/pricing'
 import { detectServiceType } from '@/lib/service-detection'
+import { DTW_AIRLINES } from '@/lib/flight-tracking'
 import type {
   Location,
   LocationSession,
@@ -92,6 +93,14 @@ export default function SelectLocationPage() {
   // Auto-adjust passenger count max when vehicle class changes
   const maxPassengers = getVehicleCapacity(vehicleClass)
 
+  // Detect airport direction: is DTW the pickup (arrival) or dropoff (departure)?
+  const isAirportPickup = pickup?.address?.toLowerCase().match(/dtw|detroit metropolitan|wayne county airport|romulus.*mi/i) !== null
+  const isAirportDropoff = dropoff?.address?.toLowerCase().match(/dtw|detroit metropolitan|wayne county airport|romulus.*mi/i) !== null
+  const airportDirection: 'arrival' | 'departure' | null =
+    serviceType === 'AIRPORT'
+      ? isAirportPickup ? 'arrival' : isAirportDropoff ? 'departure' : null
+      : null
+
   // Scheduling state
   const [scheduledDate, setScheduledDate] = useState<string>('')
   const [scheduledTime, setScheduledTime] = useState<string>('')
@@ -101,6 +110,7 @@ export default function SelectLocationPage() {
   const [passengerCount, setPassengerCount] = useState<number>(1)
   const [specialInstructions, setSpecialInstructions] = useState<string>('')
   const [flightNumber, setFlightNumber] = useState<string>('')
+  const [departureAirline, setDepartureAirline] = useState<string>('')
 
   // User location for biasing search results
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
@@ -626,6 +636,11 @@ export default function SelectLocationPage() {
           scheduledDate: scheduledDateTime,
           specialInstructions: specialInstructions.trim() || undefined,
           flightNumber: flightNumber.trim() || undefined,
+          departureAirline: departureAirline || undefined,
+          airportDirection: airportDirection || undefined,
+          terminal: departureAirline
+            ? DTW_AIRLINES.find(a => a.code === departureAirline)?.terminal || 'Evans Terminal'
+            : undefined,
           estimatedHours: serviceType === 'HOURLY' ? estimatedHours : undefined,
           dayRateDuration: serviceType === 'DAY_RATE' ? dayRateDuration : undefined,
           waitTimeTier: serviceType === 'LONG_DISTANCE' ? waitTimeTier : undefined,
@@ -976,8 +991,8 @@ export default function SelectLocationPage() {
               </p>
             </div>
 
-            {/* Flight Number (required for airport rides) */}
-            {(serviceType === 'AIRPORT' || serviceType === 'MULTI_STOP') && (
+            {/* Flight Number — required for ARRIVALS (airport is pickup) */}
+            {(serviceType === 'AIRPORT' || serviceType === 'MULTI_STOP') && airportDirection === 'arrival' && (
               <div>
                 <label className="block text-sm font-medium text-cream-100 mb-1.5">
                   Flight Number <span className="text-red-400">*</span>
@@ -989,10 +1004,58 @@ export default function SelectLocationPage() {
                   placeholder="e.g. DL1234, AA100, UA567"
                   maxLength={10}
                   className={`w-full px-3 py-3 bg-charcoal-800 border-2 rounded-lg text-cream-100 placeholder-charcoal-500 focus:border-gold-400 focus:outline-none transition-colors ${
-                    !flightNumber && serviceType === 'AIRPORT' ? 'border-red-500/50' : 'border-charcoal-700'
+                    !flightNumber ? 'border-red-500/50' : 'border-charcoal-700'
                   }`}
                 />
-                <p className="text-xs text-charcoal-500 mt-1">Required for airport rides. We&apos;ll track your flight and adjust pickup if delayed.</p>
+                <p className="text-xs text-charcoal-500 mt-1">Required for arrivals. Used to track delays and determine your terminal.</p>
+              </div>
+            )}
+
+            {/* Airline Selection — required for DEPARTURES (airport is dropoff) */}
+            {(serviceType === 'AIRPORT' || serviceType === 'MULTI_STOP') && airportDirection === 'departure' && (
+              <div>
+                <label className="block text-sm font-medium text-cream-100 mb-1.5">
+                  Airline <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={departureAirline}
+                  onChange={(e) => setDepartureAirline(e.target.value)}
+                  className={`w-full px-3 py-3 bg-charcoal-800 border-2 rounded-lg text-cream-100 focus:border-gold-400 focus:outline-none transition-colors ${
+                    !departureAirline ? 'border-red-500/50' : 'border-charcoal-700'
+                  }`}
+                >
+                  <option value="">Select your airline</option>
+                  {DTW_AIRLINES.map((airline) => (
+                    <option key={airline.code} value={airline.code}>
+                      {airline.name} — {airline.terminal}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-charcoal-500 mt-1">
+                  {departureAirline
+                    ? `Your driver will drop you at ${DTW_AIRLINES.find(a => a.code === departureAirline)?.terminal || 'Evans Terminal'}`
+                    : 'Required for departures. Determines which terminal your driver takes you to.'}
+                </p>
+              </div>
+            )}
+
+            {/* Flight Number — optional for non-airport or when direction unknown */}
+            {(serviceType === 'AIRPORT' || serviceType === 'MULTI_STOP') && !airportDirection && (
+              <div>
+                <label className="block text-sm font-medium text-cream-100 mb-1.5">
+                  Flight Number <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={flightNumber}
+                  onChange={(e) => setFlightNumber(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                  placeholder="e.g. DL1234, AA100, UA567"
+                  maxLength={10}
+                  className={`w-full px-3 py-3 bg-charcoal-800 border-2 rounded-lg text-cream-100 placeholder-charcoal-500 focus:border-gold-400 focus:outline-none transition-colors ${
+                    !flightNumber ? 'border-red-500/50' : 'border-charcoal-700'
+                  }`}
+                />
+                <p className="text-xs text-charcoal-500 mt-1">Required for airport rides.</p>
               </div>
             )}
 
@@ -1059,7 +1122,7 @@ export default function SelectLocationPage() {
             {/* Submit button */}
             <button
               onClick={handleSubmit}
-              disabled={!pickup || !dropoff || !pricing || pricing.total <= 0 || !selectedSlot || isSubmitting || ((serviceType === 'AIRPORT' || serviceType === 'MULTI_STOP') && !flightNumber.trim())}
+              disabled={!pickup || !dropoff || !pricing || pricing.total <= 0 || !selectedSlot || isSubmitting || (airportDirection === 'arrival' && !flightNumber.trim()) || (airportDirection === 'departure' && !departureAirline) || (!airportDirection && (serviceType === 'AIRPORT' || serviceType === 'MULTI_STOP') && !flightNumber.trim())}
               className="btn-primary w-full flex items-center justify-center gap-2"
             >
               {isSubmitting ? (

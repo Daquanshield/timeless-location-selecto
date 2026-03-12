@@ -107,6 +107,9 @@ export async function POST(request: NextRequest) {
       tripDirection,
       passengerCount, scheduledDate, specialInstructions,
       flightNumber,
+      departureAirline,
+      airportDirection,
+      terminal,
       // Deprecated fields (backward compat)
       vehicleType,
       rideType
@@ -281,6 +284,9 @@ export async function POST(request: NextRequest) {
         scheduled_date: scheduledDate || null,
         special_instructions: sanitizedInstructions || null,
         flight_number: sanitizedFlightNumber || null,
+        departure_airline: departureAirline || null,
+        airport_direction: airportDirection || null,
+        terminal: terminal || null,
         status: 'selected',
         completed_at: new Date().toISOString(),
         user_agent: request.headers.get('user-agent')?.slice(0, 500),
@@ -436,6 +442,9 @@ export async function POST(request: NextRequest) {
         scheduled_date: scheduledDate || null,
         special_instructions: sanitizedInstructions || null,
         flight_number: sanitizedFlightNumber || null,
+        departure_airline: departureAirline || null,
+        airport_direction: airportDirection || null,
+        terminal: terminal || null,
         ghl_appointment_id: ghlAppointmentId,
         timestamp: new Date().toISOString()
       })
