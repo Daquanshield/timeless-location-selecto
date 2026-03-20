@@ -316,14 +316,14 @@ export async function POST(request: NextRequest) {
         const vehicleLabel = getVehicleDisplayName(safeVehicleClass)
         const serviceLabel = getServiceTypeDisplayName(safeServiceType)
         const priceLabel = formatPrice(pricing.total)
-        const appointmentTitle = `${serviceLabel} — ${vehicleLabel} — ${priceLabel} (UNCONFIRMED)`
+        const appointmentTitle = `${serviceLabel} — ${vehicleLabel} — ${priceLabel} (AWAITING PAYMENT)`
 
         const noteLines = [
           `Service: ${serviceLabel}`,
           `Vehicle: ${vehicleLabel}`,
           `Passengers: ${safePassengerCount}`,
           `Price: ${priceLabel}`,
-          `Status: UNCONFIRMED — Awaiting Payment`,
+          `Status: AWAITING PAYMENT`,
           '',
           `Pickup: ${sanitizedPickup.address}`,
           `Dropoff: ${sanitizedDropoff.address}`,
@@ -355,7 +355,7 @@ export async function POST(request: NextRequest) {
             startTime: scheduledDate,
             endTime: appointmentEndTime,
             title: appointmentTitle,
-            appointmentStatus: 'new',
+            appointmentStatus: 'confirmed',
             address: sanitizedPickup.address,
             notes: noteLines.join('\n')
           })
